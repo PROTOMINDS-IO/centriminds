@@ -61,6 +61,8 @@ of `deploy/aws/env.sh`):
 | `GITHUB_REPO` | keeps current | `owner/repo` whose `production` environment may deploy, or `none` (`provision.sh`). |
 | `GITHUB_OIDC_PROVIDER_ARN` | keeps current | The account's existing GitHub OIDC provider, if it has one (`provision.sh`). |
 | `MONTHLY_BUDGET_USD` | keeps current | Monthly cost alert to `ALERT_EMAIL`; `0` for none (`provision.sh`). |
+| `OFF_HOURS` | keeps current | Daily stop and start in whole hours, e.g. `21-6`; `none` keeps the instance always on (`provision.sh`). |
+| `SCHEDULE_TZ` | `Europe/Berlin` | Time zone of `OFF_HOURS` (`provision.sh`). |
 | `SKIP_PREDEPLOY_BACKUP`, `SKIP_BACKUP` | `0` | Skip the safety backup before a deploy, or before a replacement or teardown. |
 
 ```bash
@@ -150,8 +152,11 @@ database and the uploaded `.odx` files.
   is logged.
 - **Monitoring**: the instance reports the age of its newest backup and its
   disk use every hour; alarms email `ALERT_EMAIL` if the backup passes 8 days,
-  the reports stop or the disk is more than 80 % full. A failed host is
+  the reports stop for 12 hours or the disk is more than 80 % full. A failed host is
   recovered automatically, and `MONTHLY_BUDGET_USD` adds a cost alert.
+  `OFF_HOURS` stops the instance overnight to save cost: the site is down
+  then, a deploy started in those hours fails, and missed backups and demo
+  resets run when it starts again.
   Container logs are capped at 30 MB each. Uptime is best watched from
   outside (any HTTP monitor on `https://<domain>/api/health`).
 
