@@ -59,6 +59,14 @@ jobs:
           version: '0.12.21'
       - run: uvx cfn-lint==1.57.1 --regions eu-central-1 -- infra/aws/template.yml
       - run: shellcheck -x deploy/aws/*.sh deploy/hostinger/set-dns.sh
+      # The account id belongs in local settings and GitHub secrets only: it
+      # would tie the public code to one AWS account (README, Auto deploy).
+      - name: No AWS account ids in tracked files
+        run: |
+          if git grep -nIE '(^|[^0-9A-Za-z])[0-9]{12}([^0-9A-Za-z]|$)'; then
+            echo "::error::A 12-digit number (an AWS account id?) is in a tracked file"
+            exit 1
+          fi
 
   secrets:
     name: Secrets (gitleaks)

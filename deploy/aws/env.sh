@@ -23,6 +23,9 @@
 #   teardown.sh   SKIP_BACKUP=1
 #   ../hostinger/set-dns.sh  HOSTINGER_API_TOKEN (optional DNS helper)
 PROFILE="${AWS_PROFILE-centriminds}"
+# An empty AWS_PROFILE in the environment makes the AWS CLI look for a
+# profile named "" and fail; unset, it uses the default credential chain.
+if [[ -z "$PROFILE" ]]; then unset AWS_PROFILE; fi
 REGION="${AWS_REGION:-eu-central-1}"
 STACK="${STACK:-centriminds}"
 DOMAIN="${DOMAIN:-centriminds.de}"
