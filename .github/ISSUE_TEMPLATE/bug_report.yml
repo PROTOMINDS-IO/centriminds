@@ -49,5 +49,8 @@ body:
     id: logs
     attributes:
       label: Logs or screenshots
-      description: Browser console errors, `make logs` output, screenshots.
+      description: >-
+        Browser console errors, `make logs` output, screenshots. Issues are
+        public: remove tokens, passwords, email addresses, hostnames and IP
+        addresses first.
       render: text
