@@ -7,7 +7,7 @@
 # inside the container (/tmp/venv), so no Linux venv lands in backend/.venv
 # on the host. Keep the uv pin in step with backend/Dockerfile.
 PY  = docker run --rm -v "$(CURDIR)/backend:/app" -w /app -e UV_PROJECT_ENVIRONMENT=/tmp/venv python:3.14-slim sh -c
-UV  = pip install -q --root-user-action=ignore uv==0.12.21 && uv sync --frozen -q
+UV  = pip install -q --root-user-action=ignore uv==0.12.22 && uv sync --frozen -q
 NODE = docker run --rm -v "$(CURDIR)/frontend:/app" -w /app node:24-alpine sh -c
 # Pinned by digest; CI runs `make secrets` too. Update it by hand (Dependabot
 # does not see it) and keep SCAN in step with its log format.
