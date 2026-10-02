@@ -7,6 +7,8 @@
 #   INSTANCE_TYPE=t3.medium ./deploy/aws/provision.sh       # resize (stop/start, data kept)
 #   BACKUP_RETENTION_DAYS=180 ./deploy/aws/provision.sh     # keep weekly backups 180 days
 #   REFRESH_AMI=1 ./deploy/aws/provision.sh                 # newer Amazon Linux (replaces the instance)
+#   GITHUB_REPO=owner/repo ./deploy/aws/provision.sh        # deploy role for GitHub Actions
+#   MONTHLY_BUDGET_USD=40 ./deploy/aws/provision.sh         # cost alert to ALERT_EMAIL
 #
 # Every run goes through a change set. A change that would replace the
 # instance (a new AMI, different volume settings) would also replace the
@@ -68,6 +70,25 @@ if [[ -n "${BACKUP_RETENTION_DAYS:-}" ]]; then
 else
   keep_param BackupRetentionDays
 fi
+# Auto deploy from GitHub Actions (.github/workflows/deploy.yml): the repo
+# whose `production` environment may assume the deploy role ("none" removes
+# the role), and an existing GitHub OIDC provider of the account, if any
+# (an account has at most one per URL).
+if [[ -n "${GITHUB_REPO:-}" ]]; then
+  set_param GitHubRepo "$([[ "$GITHUB_REPO" == none ]] || echo "$GITHUB_REPO")"
+else
+  keep_param GitHubRepo
+fi
+if [[ -n "${GITHUB_OIDC_PROVIDER_ARN:-}" ]]; then
+  set_param GitHubOidcProviderArn "$GITHUB_OIDC_PROVIDER_ARN"
+else
+  keep_param GitHubOidcProviderArn
+fi
+if [[ -n "${MONTHLY_BUDGET_USD:-}" ]]; then
+  set_param MonthlyBudgetUsd "$MONTHLY_BUDGET_USD"
+else
+  keep_param MonthlyBudgetUsd
+fi
 
 # The AMI is pinned: resolved once at creation, then kept, because a new
 # image replaces the instance. REFRESH_AMI=1 opts in to the latest image.
@@ -108,6 +129,9 @@ summary() {
   echo "    Elastic IP : $(out PublicIp)"
   echo "    Instance   : $(out InstanceId)"
   echo "    Backups    : s3://$(out BackupBucket) (weekly, retained)"
+  local role
+  role="$(out DeployRoleArn)"
+  if [[ -n "$role" ]]; then echo "    Deploy role: $role"; fi
 }
 
 echo "==> Preparing $TYPE change set for $STACK ($REGION, profile $PROFILE, $DOMAIN)"
@@ -179,4 +203,8 @@ elif [[ "$TYPE" == CREATE ]]; then
   echo "    Next       : point the A records of $DOMAIN and www.$DOMAIN at $(out PublicIp)"
   echo "                 (Hostinger: HOSTINGER_API_TOKEN=... ./deploy/hostinger/set-dns.sh $DOMAIN $(out PublicIp))"
   echo "                 ./deploy/aws/deploy.sh"
+fi
+if [[ -n "$(out DeployRoleArn)" ]]; then
+  echo "    GitHub     : store the deploy role above as the AWS_DEPLOY_ROLE_ARN secret of the"
+  echo "                 repository's production environment (never in a committed file)"
 fi

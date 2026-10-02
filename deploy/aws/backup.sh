@@ -2,7 +2,7 @@
 # Data backups on the instance (installed as /usr/local/bin/centriminds-backup).
 #
 #   centriminds-backup run [weekly|pre-deploy]   # archive -> s3://$BACKUP_BUCKET/<kind>/
-#   centriminds-backup report                    # publish backup age to CloudWatch
+#   centriminds-backup report                    # publish backup age and disk use to CloudWatch
 #
 # Only data is backed up: the SQLite database and the uploaded .odx files.
 # A one-off container from the backend image reads the data volume
@@ -60,6 +60,12 @@ report() {
     --namespace CentriMinds --metric-name BackupAgeHours \
     --dimensions "Stack=$STACK" --unit None \
     --value "$(( (now - last) / 3600 ))"
+  # The root volume holds the data, the images and the backup scratch space
+  # (DiskUsageAlarm fires above 80 %).
+  aws cloudwatch put-metric-data --region "$AWS_REGION" \
+    --namespace CentriMinds --metric-name DiskUsedPercent \
+    --dimensions "Stack=$STACK" --unit Percent \
+    --value "$(df --output=pcent / | tail -1 | tr -dc '0-9')"
 }
 
 case "${1:-}" in

@@ -5,6 +5,8 @@
 #   SKIP_PREDEPLOY_BACKUP=1 ./deploy/aws/deploy.sh   # e.g. when the backup itself fails
 #   REGISTRATION_EMAILS=you@example.com,colleague@example.com ./deploy/aws/deploy.sh
 #   REGISTRATION_EMAILS=none ./deploy/aws/deploy.sh
+#   DEMO_EMAIL=demo@example.com ./deploy/aws/deploy.sh      # shared demo login, reset nightly
+#   DEMO_EMAIL=none ./deploy/aws/deploy.sh
 #
 # Sign-up is closed after the first deploy. REGISTRATION_EMAILS opens it to
 # just those addresses (each signs up with a password of their own), and
@@ -25,15 +27,20 @@ source "$(dirname "$0")/ssm.sh"
 SKIP_PREDEPLOY_BACKUP="${SKIP_PREDEPLOY_BACKUP:-0}"
 [[ "$SKIP_PREDEPLOY_BACKUP" =~ ^[01]$ ]] || { echo "SKIP_PREDEPLOY_BACKUP must be 0 or 1" >&2; exit 1; }
 REGISTRATION_EMAILS="${REGISTRATION_EMAILS:-}"
+DEMO_EMAIL="${DEMO_EMAIL:-}"
+EMAIL_RE='^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$'
 # Checked here, before anything is replaced: each item a plain address (it
 # also goes into the SSM command line below, so nothing a shell would read).
 if [[ -n "$REGISTRATION_EMAILS" && "$REGISTRATION_EMAILS" != none ]]; then
   IFS=, read -r -a _emails <<< "$REGISTRATION_EMAILS"
   [[ "$REGISTRATION_EMAILS" != *, ]] || _emails+=("")
   for _email in "${_emails[@]}"; do
-    [[ "$_email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$ ]] \
+    [[ "$_email" =~ $EMAIL_RE ]] \
       || { echo "REGISTRATION_EMAILS: '$_email' is not an email address (comma-separated, no spaces, or none)" >&2; exit 1; }
   done
+fi
+if [[ -n "$DEMO_EMAIL" && "$DEMO_EMAIL" != none && ! "$DEMO_EMAIL" =~ $EMAIL_RE ]]; then
+  echo "DEMO_EMAIL: '$DEMO_EMAIL' is not an email address (or none)" >&2; exit 1
 fi
 INSTANCE_ID="$(require_out InstanceId)"
 BUCKET="$(require_out DeployBucket)"
@@ -70,5 +77,5 @@ ssm_run --progress "centriminds deploy" \
   "mkdir -p /opt/centriminds && cd /opt/centriminds" \
   "aws s3 cp s3://$BUCKET/deploy/src.tar.gz /tmp/src.tar.gz" \
   "rm -rf src && mkdir -p src && tar -xzf /tmp/src.tar.gz -C src" \
-  "SKIP_PREDEPLOY_BACKUP=$SKIP_PREDEPLOY_BACKUP REGISTRATION_EMAILS=$REGISTRATION_EMAILS bash src/deploy/aws/remote-deploy.sh $DOMAIN $STACK $BACKUP_BUCKET $REGION"
+  "SKIP_PREDEPLOY_BACKUP=$SKIP_PREDEPLOY_BACKUP REGISTRATION_EMAILS=$REGISTRATION_EMAILS DEMO_EMAIL=$DEMO_EMAIL bash src/deploy/aws/remote-deploy.sh $DOMAIN $STACK $BACKUP_BUCKET $REGION"
 echo "==> Done. https://$DOMAIN"

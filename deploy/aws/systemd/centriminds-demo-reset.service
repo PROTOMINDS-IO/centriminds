@@ -1,0 +1,13 @@
+[Unit]
+Description=Reset the CentriMinds shared demo account to its seed data
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+# DEMO_EMAIL comes from the app's environment file (remote-deploy.sh). The
+# reset runs in the running backend container (app/demo.py) and touches only
+# that account: invited accounts keep their data.
+EnvironmentFile=/opt/centriminds/.env
+ExecStart=/usr/bin/docker exec centriminds-backend python -m app.demo reset --email ${DEMO_EMAIL}
+Nice=10
