@@ -83,6 +83,22 @@ if docker volume inspect "$DATA_VOLUME" > /dev/null 2>&1; then
 fi
 
 # ── Build and start ────────────────────────────────────────────────────
+# Compose builds through buildx (0.17 or later), which Amazon Linux's docker
+# package does not ship. The release binary is pinned and checked against
+# its published SHA-256 (the release's checksums.txt), like Compose in the
+# instance's user data. Bump both together.
+BUILDX_VERSION=v0.37.2
+BUILDX_SHA256=982ca20490b45ed1ec8d99795974d3d874a358f75938c9c237305010e6b7e548
+BUILDX=/usr/local/lib/docker/cli-plugins/docker-buildx
+if ! "$BUILDX" version 2> /dev/null | grep -q " $BUILDX_VERSION "; then
+  echo "==> Installing buildx $BUILDX_VERSION"
+  curl -fsSL "https://github.com/docker/buildx/releases/download/$BUILDX_VERSION/buildx-$BUILDX_VERSION.linux-amd64" \
+    -o /tmp/docker-buildx
+  echo "$BUILDX_SHA256  /tmp/docker-buildx" | sha256sum -c -
+  install -D -m 0755 /tmp/docker-buildx "$BUILDX"
+  rm -f /tmp/docker-buildx
+fi
+
 cd "$SRC"
 docker compose --env-file "$ENV_FILE" up -d --build --remove-orphans
 docker image prune -f
