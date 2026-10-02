@@ -145,6 +145,43 @@ def _too_large(settings: Settings) -> AppError:
     )
 
 
+def project_from_upload(
+    user: User,
+    parsed: OdxFile,
+    *,
+    name: str,
+    filename: str,
+    profile_id: int | None,
+    profile_chosen: bool,
+    detected_id: int | None,
+    notes_markdown: str = "",
+) -> Project:
+    """A new Project row for a parsed `.odx`, its shape cached from the file
+    (not yet added to a session: `store_upload` does that)."""
+    return Project(
+        user_id=user.id,
+        name=name,
+        machine_profile_id=profile_id,
+        machine_profile_chosen=profile_chosen,
+        notes_markdown=notes_markdown,
+        odx_filename=filename,
+        odx_hash=parsed.content_sha256,
+        n_blocks=len(parsed.ref_speeds),
+        bin_count=len(parsed.freq_axis),
+        freq_min_hz=parsed.freq_axis[0],
+        freq_max_hz=parsed.freq_axis[-1],
+        freq_step_hz=(
+            parsed.freq_axis[1] - parsed.freq_axis[0] if len(parsed.freq_axis) > 1 else 0.0
+        ),
+        rpm_min=min(parsed.ref_speeds),
+        rpm_max=max(parsed.ref_speeds),
+        odx_header_path=parsed.header_path,
+        odx_export_human=parsed.header_export_human,
+        odx_format_version=parsed.header_format_version,
+        detected_profile_id=detected_id,
+    )
+
+
 @router.post("", response_model=ProjectDetail, status_code=201)
 async def create_project(
     file: UploadFile = File(..., description=".odx vibration export"),
@@ -200,27 +237,15 @@ async def create_project(
         else:
             resolved_name = "Untitled project"
 
-    project = Project(
-        user_id=current_user.id,
+    project = project_from_upload(
+        current_user,
+        parsed,
         name=resolved_name,
-        machine_profile_id=chosen,
-        machine_profile_chosen=machine_profile_id is not None,
+        filename=file.filename or "upload.odx",
+        profile_id=chosen,
+        profile_chosen=machine_profile_id is not None,
+        detected_id=detected.id if detected else None,
         notes_markdown=notes_markdown,
-        odx_filename=file.filename or "upload.odx",
-        odx_hash=parsed.content_sha256,
-        n_blocks=len(parsed.ref_speeds),
-        bin_count=len(parsed.freq_axis),
-        freq_min_hz=parsed.freq_axis[0],
-        freq_max_hz=parsed.freq_axis[-1],
-        freq_step_hz=(
-            parsed.freq_axis[1] - parsed.freq_axis[0] if len(parsed.freq_axis) > 1 else 0.0
-        ),
-        rpm_min=min(parsed.ref_speeds),
-        rpm_max=max(parsed.ref_speeds),
-        odx_header_path=parsed.header_path,
-        odx_export_human=parsed.header_export_human,
-        odx_format_version=parsed.header_format_version,
-        detected_profile_id=detected.id if detected else None,
     )
     project.measurement_metadata = MeasurementMetadata(
         sensor_location=sensor_location,
@@ -230,11 +255,11 @@ async def create_project(
         site=site,
     )
     # Disk and database work runs in a worker thread, off the event loop.
-    await run_in_threadpool(_store_upload, session, settings, project, content, parsed)
+    await run_in_threadpool(store_upload, session, settings, project, content, parsed)
     return await run_in_threadpool(_project_to_detail, session, project)
 
 
-def _store_upload(
+def store_upload(
     session: Session, settings: Settings, project: Project, content: bytes, parsed: OdxFile
 ) -> None:
     """Insert the row and write its .odx as one unit.
