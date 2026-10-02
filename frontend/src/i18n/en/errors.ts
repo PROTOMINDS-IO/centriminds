@@ -13,6 +13,7 @@ export const errors = {
   account_disabled: 'This account is disabled.',
   rate_limited: 'Too many attempts. Please wait {retry_after} seconds and try again.',
   wrong_password: 'The current password is incorrect.',
+  demo_account_locked: 'The demo account is shared, so its password, name and sessions cannot be changed.',
   project_not_found: 'Project not found.',
   analysis_not_found: 'Analysis not found.',
   file_too_large: 'The file is larger than {max_mb} MB.',

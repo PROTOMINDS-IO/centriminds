@@ -101,6 +101,13 @@ def login(
     return TokenResponse(access_token=token, user=UserRead.model_validate(user))
 
 
+def _refuse_demo_account(user: User, settings: Settings) -> None:
+    """The shared demo login is used by many visitors at once: none of them
+    may change what lets the others in (password, sessions) or its name."""
+    if settings.demo_email and user.email == settings.demo_email:
+        raise AppError(403, "demo_account_locked", "The demo account cannot be changed")
+
+
 @router.get("/me", response_model=UserRead)
 def me(current_user: User = Depends(get_current_user)) -> UserRead:
     return UserRead.model_validate(current_user)
@@ -110,10 +117,12 @@ def me(current_user: User = Depends(get_current_user)) -> UserRead:
 def update_me(
     body: UserUpdate,
     session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
     current_user: User = Depends(get_current_user),
 ) -> UserRead:
     """Rename, and/or change the settings keys sent (the others are kept)."""
     if body.name is not None:
+        _refuse_demo_account(current_user, settings)
         current_user.name = body.name
     if body.settings is not None:
         # Merged by SQLite (RFC 7396 merge patch) rather than read-modify-write:
@@ -145,6 +154,7 @@ def change_password(
     """Set a new password and end every session of the account, so whoever
     signed in with the old password is signed out. The device that changed
     it carries on with the token returned."""
+    _refuse_demo_account(current_user, settings)
     if not verify_password(body.current_password, current_user.password_hash):
         raise AppError(400, "wrong_password", "Current password is incorrect")
     current_user.password_hash = hash_password(body.new_password)
@@ -157,6 +167,7 @@ def change_password(
 @router.delete("/me/sessions", status_code=status.HTTP_204_NO_CONTENT)
 def sign_out_everywhere(
     session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
     current_user: User = Depends(get_current_user),
 ) -> None:
     """End every session of the account, the one asking included.
@@ -164,5 +175,6 @@ def sign_out_everywhere(
     Unlike a password change it keeps none, and it asks for no password: a
     stolen token can use it only to end itself along with the others.
     """
+    _refuse_demo_account(current_user, settings)
     end_sessions(session, current_user)
     session.commit()
