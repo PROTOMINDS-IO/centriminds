@@ -1,0 +1,274 @@
+@import 'tailwindcss';
+
+/* Utilities follow the theme on <html data-theme="light|dark">, which
+   public/theme-init.js sets before first paint and lib/theme.ts keeps in sync. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+@custom-variant light (&:where([data-theme='light'], [data-theme='light'] *));
+
+/* Design tokens. Every colour and shadow the page's CSS uses is defined here
+   once; code that draws (the WebGL scenes, charts, thumbnails) keeps its own
+   palettes, e.g. lib/colormaps.ts and components/waterfall/palette.ts.
+
+   The ink scale is by role, not by lightness: 50 is the strongest text and
+   950 the page background, with surfaces rising 950 → 900 → 800 (cards).
+   The light theme below maps the same roles to light values, so components
+   are written once (text-ink-100, bg-ink-800, border-ink-700, …). Likewise
+   accent-200/300 are for accent text and 400/500 for fills and focus. */
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  --color-ink-50: #f7f7f8;
+  --color-ink-100: #e7e7ea;
+  --color-ink-200: #c8c8ce;
+  --color-ink-300: #9b9ba6;
+  --color-ink-400: #5b5b69;
+  --color-ink-500: #3a3a44;
+  --color-ink-600: #26262d;
+  --color-ink-700: #1a1a20;
+  --color-ink-800: #111116;
+  --color-ink-900: #08080b;
+  --color-ink-950: #04040a;
+
+  /* Cyan/teal accent that complements viridis without competing with it. */
+  --color-accent-50: #ecfeff;
+  --color-accent-200: #a5f3fc;
+  --color-accent-300: #67e8f9;
+  --color-accent-400: #22d3ee;
+  --color-accent-500: #06b6d4;
+
+  /* Hairlines and overlays: white on dark, near-black on light. Always used
+     with an opacity (border-edge/10, bg-edge/[0.06]). */
+  --color-edge: #ffffff;
+
+  /* Primary action (filled button). */
+  --color-primary: #06b6d4;
+  --color-primary-hover: #22d3ee;
+  --color-primary-active: #0891b2;
+  --color-on-primary: #04040a;
+
+  /* Condition zones: the fixed status palette for dots, bars and planes
+     (same in both themes), plus a text tone per theme for labels on tinted
+     pills. Status never rides on colour alone: always with a label. */
+  --color-zone-good: #0ca30c;
+  --color-zone-usable: #fab219;
+  --color-zone-alarm: #ec835a;
+  --color-zone-shutdown: #d03b3b;
+  --color-zone-good-text: #5fd35f;
+  --color-zone-usable-text: #fcd36e;
+  --color-zone-alarm-text: #f4ae92;
+  --color-zone-shutdown-text: #f08c8c;
+
+  /* FE structural modes (pink, apart from the source and status hues). */
+  --color-mode: #f472b6;
+
+  /* Errors in forms. */
+  --color-danger: #ef4444;
+  --color-danger-text: #fca5a5;
+
+  --shadow-glow: 0 0 24px -2px rgba(34, 211, 238, 0.55);
+  --shadow-glow-sm: 0 0 12px -2px rgba(34, 211, 238, 0.4);
+  /* Raised card: inset top highlight + strong drop shadow. */
+  --shadow-card:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset, 0 20px 48px -16px rgba(0, 0, 0, 0.7),
+    0 1px 2px rgba(0, 0, 0, 0.5);
+  /* Floating panels that need to pop. */
+  --shadow-card-pop:
+    0 1px 0 rgba(255, 255, 255, 0.1) inset, 0 -1px 0 rgba(0, 0, 0, 0.5) inset,
+    0 24px 56px -16px rgba(0, 0, 0, 0.8), 0 2px 8px rgba(0, 0, 0, 0.6);
+
+  /* Motion: one easing for the whole UI (fast start, soft landing) and a
+     few named animations. Durations stay short (160–280 ms); everything
+     turns off under prefers-reduced-motion (below). */
+  --ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-enter: enter 220ms var(--ease-smooth) both;
+  --animate-exit: exit 180ms var(--ease-smooth) both;
+  --animate-sheet-in: sheet-in 280ms var(--ease-smooth) both;
+  --animate-sheet-out: sheet-out 220ms var(--ease-smooth) both;
+  --animate-pop: pop 160ms var(--ease-smooth) both;
+
+  @keyframes enter {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+  }
+  @keyframes exit {
+    to {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+  }
+  @keyframes sheet-in {
+    from {
+      transform: translateY(100%);
+    }
+  }
+  @keyframes sheet-out {
+    to {
+      transform: translateY(100%);
+    }
+  }
+  @keyframes pop {
+    from {
+      opacity: 0;
+      transform: translateY(-4px) scale(0.98);
+    }
+  }
+}
+
+:root {
+  color-scheme: dark;
+  /* Soft sheen on top of cards (invisible in the light theme). */
+  --card-sheen: rgba(255, 255, 255, 0.04);
+}
+
+/* Light theme: the same roles, light values. */
+:root[data-theme='light'] {
+  color-scheme: light;
+  --card-sheen: transparent;
+
+  --color-ink-50: #0b0d12;
+  --color-ink-100: #1b1e26;
+  --color-ink-200: #353945;
+  --color-ink-300: #585d6b;
+  --color-ink-400: #737885;
+  --color-ink-500: #aeb2bd;
+  --color-ink-600: #d4d7de;
+  --color-ink-700: #e4e6eb;
+  --color-ink-800: #ffffff;
+  --color-ink-900: #f7f8fa;
+  --color-ink-950: #eef0f3;
+
+  --color-accent-50: #083344;
+  --color-accent-200: #0e6177;
+  --color-accent-300: #0e7490;
+  --color-accent-400: #0891b2;
+  --color-accent-500: #06b6d4;
+
+  --color-edge: #0b1020;
+
+  --color-primary: #0e7490;
+  --color-primary-hover: #0b5f76;
+  --color-primary-active: #094e61;
+  --color-on-primary: #ffffff;
+
+  --color-zone-good-text: #006300;
+  --color-zone-usable-text: #7a5200;
+  --color-zone-alarm-text: #9c3f17;
+  --color-zone-shutdown-text: #a82020;
+
+  --color-mode: #be185d;
+
+  --color-danger: #dc2626;
+  --color-danger-text: #b91c1c;
+
+  --shadow-glow: 0 4px 14px -4px rgba(14, 116, 144, 0.45);
+  --shadow-glow-sm: 0 2px 8px -3px rgba(14, 116, 144, 0.35);
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.06), 0 8px 24px -12px rgba(16, 24, 40, 0.18);
+  --shadow-card-pop: 0 2px 6px rgba(16, 24, 40, 0.08), 0 16px 40px -12px rgba(16, 24, 40, 0.25);
+}
+
+@layer base {
+  /* Tailwind 4 defaults borders to currentColor; this UI's neutral is ink-700. */
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-ink-700);
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-ink-950 font-sans text-ink-100 antialiased;
+  }
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+  /* People who ask their system for less motion get none. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 1ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 1ms !important;
+    }
+  }
+  /* Scrollbars follow the theme. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in oklab, var(--color-edge) 10%, transparent);
+    border-radius: 8px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in oklab, var(--color-edge) 18%, transparent);
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-all duration-150 focus-visible:ring-2 focus-visible:ring-accent-400/50 focus-visible:ring-offset-2 focus-visible:ring-offset-ink-900 focus-visible:outline-hidden disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply bg-primary text-on-primary shadow-glow-sm hover:bg-primary-hover hover:shadow-glow active:bg-primary-active;
+  }
+  .btn-ghost {
+    @apply bg-transparent text-ink-100 hover:bg-ink-700/70 hover:text-ink-50;
+  }
+  .btn-outline {
+    @apply border border-ink-600 bg-transparent text-ink-100 hover:border-accent-400/60 hover:text-accent-200;
+  }
+  .card {
+    @apply rounded-xl border border-edge/[0.07] bg-ink-800/80 p-4 shadow-card;
+    background-image: linear-gradient(to bottom, var(--card-sheen) 0%, transparent 60px);
+  }
+  .card-glass {
+    @apply rounded-2xl border border-edge/10 bg-ink-900/70 p-6 shadow-card backdrop-blur-md;
+  }
+  /* Floating chrome over the 3D view: the cards, their bottom sheets, the
+     slice panel and the colour legend share this skin. */
+  .float {
+    @apply border border-edge/10 bg-ink-800/90 shadow-card backdrop-blur-md;
+  }
+  /* A floating card that widens while something is open inside it: at least
+     --card-w, more if its content needs it (data-expanded). Where the
+     browser can interpolate intrinsic sizes the change animates; elsewhere
+     it is immediate (the content inside still slides open). */
+  .card-grow {
+    transition: width 260ms var(--ease-smooth);
+  }
+  .card-grow[data-expanded='true'] {
+    min-width: var(--card-w);
+  }
+  @supports (width: calc-size(auto, size)) {
+    .card-grow {
+      interpolate-size: allow-keywords;
+    }
+    .card-grow[data-expanded='true'] {
+      min-width: 0;
+      width: calc-size(auto, max(size, var(--card-w)));
+    }
+  }
+  /* 16px on phones so iOS Safari does not zoom into focused fields. */
+  .input,
+  .select {
+    @apply w-full rounded-md border border-ink-600 bg-ink-800/80 px-3 py-2 text-base text-ink-100 transition-colors placeholder:text-ink-400 focus:border-accent-400 focus:ring-2 focus:ring-accent-400/40 focus:outline-hidden sm:text-sm;
+  }
+  .label {
+    @apply mb-1.5 block text-[11px] tracking-[0.12em] text-ink-300 uppercase;
+  }
+  .pill {
+    @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium;
+  }
+}

@@ -1,0 +1,14 @@
+# Local virtualenv + caches
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# SQLite + uploaded .odx files (local dev only — Docker uses a named volume)
+data/
+*.db
+*.db-journal

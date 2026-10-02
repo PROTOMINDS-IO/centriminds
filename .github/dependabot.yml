@@ -1,0 +1,58 @@
+# Keeps dependencies current: a weekly PR per ecosystem, minor and patch
+# updates grouped so they land together; majors arrive one by one.
+#
+# Runtime versions are the exception. Node (24, the current LTS line) and
+# Python (3.14) are each pinned in several places that must move together
+# (CONTRIBUTING.md lists them: the Dockerfiles, the Compose file's dev
+# server, the CI workflow, the Makefile, @types/node and engines, or
+# requires-python and ruff's target-version). A Dependabot PR would bump
+# only one of them, so those upgrades are made by hand: Node when the next
+# even release becomes LTS, Python once its dependencies support the new
+# version.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: '@types/node'
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: uv
+    directory: /backend
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    directories: [/backend, /frontend]
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: node
+        update-types: [version-update:semver-major]
+      - dependency-name: python
+        update-types: [version-update:semver-major, version-update:semver-minor]
+
+  # Images named in the Compose files: node for `make dev` (docker-compose.yml)
+  # and Caddy on AWS (deploy/aws/docker-compose.yml). The centriminds-* images
+  # are built from this repository, not pulled.
+  - package-ecosystem: docker-compose
+    directories: [/, /deploy/aws]
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: 'centriminds-*'
+      - dependency-name: node
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

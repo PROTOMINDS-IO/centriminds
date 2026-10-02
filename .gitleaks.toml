@@ -1,0 +1,17 @@
+# Secret scanning with gitleaks (the "Secrets" job in CI scans every commit).
+# The default rules apply. The allowlist covers only the fixed, fake
+# credentials the backend tests sign in with, and only inside backend/tests:
+# a real-looking secret there is still reported.
+title = "CentriMinds"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Fake credentials in the backend tests"
+condition = "AND"
+paths = ['''^backend/tests/''']
+regexes = [
+  '''^test-secret-[0-9a-f]+$''',
+  '''^[a-z]+-(?:pwd|password)-[0-9]+$''',
+]

@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (lint, format, tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # uv in step with backend/Dockerfile and the Makefile.
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: '0.12.21'
+          python-version: '3.14'
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pytest
+
+  frontend:
+    name: Frontend (types, lint, format, tests, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - run: npm run build
+
+  infra:
+    name: Infrastructure (cfn-lint, shellcheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: '0.12.21'
+      - run: uvx cfn-lint==1.57.1 --regions eu-central-1 -- infra/aws/template.yml
+      - run: shellcheck -x deploy/aws/*.sh deploy/hostinger/set-dns.sh
+
+  secrets:
+    name: Secrets (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # every commit, not only the last one
+      # The whole history, with the allowlist in .gitleaks.toml; the pinned
+      # gitleaks image is in the Makefile.
+      - name: Scan every commit for secrets
+        run: make secrets
+
+  images:
+    name: Images (build + smoke test)
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build and start the stack
+        run: docker compose up -d --build --wait --wait-timeout 180
+      - name: Smoke test through nginx
+        run: |
+          set -euo pipefail
+          curl -fsS http://localhost:3000/api/health | grep -q '"ok"'
+          curl -fsS http://localhost:3000/api/auth/config | grep -q allow_registration
+          headers="$(curl -fsSI http://localhost:3000/)"
+          grep -qi '^content-security-policy:' <<<"$headers"
+          grep -qi '^x-content-type-options: nosniff' <<<"$headers"
+          curl -fsS http://localhost:3000/ | grep -q 'id="root"'
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs
+      - if: always()
+        run: docker compose down -v

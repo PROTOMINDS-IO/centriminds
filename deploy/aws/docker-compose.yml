@@ -1,0 +1,65 @@
+# On-instance compose for AWS. Caddy terminates TLS for ${DOMAIN} and proxies
+# to the frontend nginx, which serves the SPA and proxies /api to the backend.
+# SQLite, uploads and Caddy's certificates live on the encrypted EBS volume
+# via named volumes. The fixed project name keeps volume names stable across
+# deploys; the scripts that work on the volume, image and containers outside
+# Compose take their names from names.sh, so change both together. The
+# variables come from /opt/centriminds/.env, which remote-deploy.sh writes
+# and passes in. Healthchecks are the images' own (the Dockerfiles).
+name: centriminds
+
+services:
+  backend:
+    build:
+      context: ../../backend
+    image: centriminds-backend:aws
+    container_name: centriminds-backend
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      DATA_DIR: /data
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-false}
+      REGISTRATION_EMAILS: ${REGISTRATION_EMAILS:-}
+    volumes:
+      - centriminds_data:/data
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ../../frontend
+    image: centriminds-frontend:aws
+    container_name: centriminds-frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    expose:
+      - "8080"
+    volumes:
+      # Take the client address from Caddy (frontend/nginx.conf explains).
+      - ./real-ip.conf:/etc/nginx/conf.d/real-ip.conf:ro
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.11-alpine
+    container_name: centriminds-caddy
+    depends_on:
+      - frontend
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN must be set}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  centriminds_data:
+  caddy_data:
+  caddy_config:

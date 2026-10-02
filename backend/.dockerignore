@@ -1,0 +1,20 @@
+# Patterns match from the context root; **/ makes them match at any depth.
+.venv
+**/__pycache__
+**/*.pyc
+**/*.pyo
+.pytest_cache
+.mypy_cache
+.ruff_cache
+data
+tests
+**/*.db
+**/*.db-journal
+.coverage
+htmlcov
+**/.DS_Store
+# macOS AppleDouble resource forks — contain null bytes and break Alembic's
+# version-file loader if copied into the image.
+**/._*
+.vscode
+.idea

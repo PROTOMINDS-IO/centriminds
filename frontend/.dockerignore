@@ -1,0 +1,12 @@
+# Patterns match from the context root; **/ makes them match at any depth.
+node_modules
+dist
+.vite
+.cache
+npm-debug.log*
+**/.DS_Store
+# macOS AppleDouble resource forks (._*), anywhere in the tree.
+**/._*
+.vscode
+.idea
+.claude

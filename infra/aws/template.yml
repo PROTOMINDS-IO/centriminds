@@ -1,0 +1,581 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  CentriMinds on a single EC2 instance. Docker Compose runs Caddy (TLS via
+  Let's Encrypt for the custom domain), the nginx frontend and the FastAPI
+  backend. SQLite and the uploaded files live on the encrypted EBS root
+  volume and are backed up weekly to a retained S3 bucket, with an alarm if
+  backups stop. DNS stays with any provider: A records for the domain and
+  www point at the Elastic IP (deploy/hostinger/set-dns.sh is an optional
+  helper for Hostinger).
+  Management is SSM-only (no SSH); source ships as a private S3 bundle and is
+  built on-box. Deploy with deploy/aws/provision.sh, which guards against
+  changes that would replace the instance.
+
+Parameters:
+  # No default: every deployment serves its own domain (provision.sh passes
+  # DOMAIN from deploy/aws/env.sh).
+  DomainName:
+    Type: String
+    AllowedPattern: '^[a-z0-9.-]+\.[a-z]{2,}$'
+    Description: Apex domain served by Caddy (www.<domain> redirects to it).
+  InstanceType:
+    Type: String
+    Default: t3.small
+    Description: 2 GB RAM (+2 GB swap) builds the images and runs the analysis stack.
+  # A plain image id, resolved once by provision.sh and then kept. An SSM
+  # "latest AMI" parameter re-resolves on every stack update, and a new image
+  # replaces the instance, and with it the root volume that holds the data.
+  AmiId:
+    Type: AWS::EC2::Image::Id
+    Description: Amazon Linux 2023 x86_64 AMI id. Changing it replaces the instance (restore data from backup).
+  BackupRetentionDays:
+    Type: Number
+    Default: 90
+    MinValue: 14
+    MaxValue: 3650
+    Description: Days to keep weekly data backups (90 keeps about 13).
+  AlertEmail:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[^@\s]+@[^@\s]+\.[^@\s]+$'
+    Description: Optional address for backup alerts (confirm the SNS subscription email). Empty = no email.
+  # The access-log and backup buckets outlive the stack (DeletionPolicy
+  # Retain) under fixed names. When the stack is created again after a
+  # teardown, provision.sh finds them and sets these to true: the stack then
+  # uses the existing buckets (and the backups in them) instead of failing
+  # to create buckets whose names are taken.
+  AccessLogBucketExists:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['false', 'true']
+    Description: true = reuse the retained access-log bucket of an earlier stack with this name.
+  BackupBucketExists:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['false', 'true']
+    Description: true = reuse the retained backup bucket (and its backups) of an earlier stack with this name.
+
+Conditions:
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, '']]
+  CreateAccessLogBucket: !Equals [!Ref AccessLogBucketExists, 'false']
+  CreateBackupBucket: !Equals [!Ref BackupBucketExists, 'false']
+
+Resources:
+  # ── S3: server access logs of the other buckets ───────────────────────
+  # Audit trail of who read or wrote backups and deploy bundles. Retained:
+  # an audit log should outlive the stack it describes.
+  AccessLogBucket:
+    Type: AWS::S3::Bucket
+    Condition: CreateAccessLogBucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Metadata:
+      guard:
+        SuppressedRules:
+          - S3_BUCKET_LOGGING_ENABLED # it is the log target; logging it would recurse
+          - S3_BUCKET_REPLICATION_ENABLED # single-region stack by design
+          - S3_BUCKET_DEFAULT_LOCK_ENABLED # logs, not data; lifecycle-managed
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-access-logs-${AWS::AccountId}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-logs
+            Status: Enabled
+            ExpirationInDays: 365
+          - Id: expire-old-versions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 7
+      Tags:
+        - Key: Project
+          Value: centriminds
+
+  # S3 log delivery writes through this policy (the bucket enforces owner
+  # ownership, so ACL grants are not an option). Scoped by account and by
+  # this stack's bucket-name prefix rather than bucket references, so it can
+  # exist before the source buckets and they can depend on it. The retained
+  # buckets are addressed by name, which works whether this stack created
+  # them or reuses them (see AccessLogBucketExists).
+  AccessLogBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Metadata:
+      guard:
+        SuppressedRules:
+          - S3_BUCKET_SSL_REQUESTS_ONLY # DenyInsecureTransport below, scoped to this bucket
+    Properties:
+      Bucket: !If
+        - CreateAccessLogBucket
+        - !Ref AccessLogBucket
+        - !Sub '${AWS::StackName}-access-logs-${AWS::AccountId}'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowS3LogDelivery
+            Effect: Allow
+            Principal:
+              Service: logging.s3.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub 'arn:${AWS::Partition}:s3:::${AWS::StackName}-access-logs-${AWS::AccountId}/*'
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !Sub 'arn:${AWS::Partition}:s3:::${AWS::StackName}-*'
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:s3:::${AWS::StackName}-access-logs-${AWS::AccountId}'
+              - !Sub 'arn:${AWS::Partition}:s3:::${AWS::StackName}-access-logs-${AWS::AccountId}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+  # ── S3: private deploy bundle (source tarball) ─────────────────────────
+  DeployBucket:
+    Type: AWS::S3::Bucket
+    DependsOn: AccessLogBucketPolicy
+    Metadata:
+      guard:
+        SuppressedRules:
+          - S3_BUCKET_REPLICATION_ENABLED # transient build input; rebuilt from Git
+          - S3_BUCKET_DEFAULT_LOCK_ENABLED # transient build input; rebuilt from Git
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-deploy-${AWS::AccountId}'
+      LoggingConfiguration:
+        DestinationBucketName: !Sub '${AWS::StackName}-access-logs-${AWS::AccountId}'
+        LogFilePrefix: deploy/
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-old-bundles
+            Status: Enabled
+            ExpirationInDays: 14
+          - Id: expire-old-versions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 1
+          - Id: abort-incomplete-uploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 3
+      Tags:
+        - Key: Project
+          Value: centriminds
+
+  DeployBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Metadata:
+      guard:
+        SuppressedRules:
+          - S3_BUCKET_SSL_REQUESTS_ONLY # DenyInsecureTransport below, scoped to this bucket
+    Properties:
+      Bucket: !Ref DeployBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt DeployBucket.Arn
+              - !Sub '${DeployBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+  # ── S3: data backups (customer data, kept beyond the stack) ────────────
+  # Weekly archives (weekly/) and a safety copy before every deploy and
+  # restore (pre-deploy/) of the SQLite database and the uploaded .odx files;
+  # the application itself is rebuilt from Git. Retained on stack delete and on
+  # replacement: these may be the only copy of customer data. Versioned, and
+  # the instance may write but never delete: overwriting a backup only adds
+  # a version. Object Lock (governance, 30 days) keeps every version for 30
+  # days after it was written, even from an admin session unless it
+  # explicitly bypasses governance, so a compromised host cannot erase the
+  # last 30 days of backups. Older ones are not safe from it in the same way:
+  # once their lock has run out, a version overwritten or marked deleted
+  # expires with the lifecycle rules below.
+  BackupBucket:
+    Type: AWS::S3::Bucket
+    Condition: CreateBackupBucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    DependsOn: AccessLogBucketPolicy
+    Metadata:
+      guard:
+        SuppressedRules:
+          - S3_BUCKET_REPLICATION_ENABLED # next step: a second-region copy (separate stack)
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-backups-${AWS::AccountId}'
+      ObjectLockEnabled: true
+      ObjectLockConfiguration:
+        ObjectLockEnabled: Enabled
+        Rule:
+          DefaultRetention:
+            Mode: GOVERNANCE
+            Days: 30
+      LoggingConfiguration:
+        DestinationBucketName: !Sub '${AWS::StackName}-access-logs-${AWS::AccountId}'
+        LogFilePrefix: backups/
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-weekly-backups
+            Status: Enabled
+            Prefix: weekly/
+            ExpirationInDays: !Ref BackupRetentionDays
+          - Id: expire-pre-deploy-backups
+            Status: Enabled
+            Prefix: pre-deploy/
+            ExpirationInDays: 30
+          - Id: expire-old-versions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 7
+          - Id: remove-expired-delete-markers
+            Status: Enabled
+            ExpiredObjectDeleteMarker: true
+          - Id: abort-incomplete-uploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 3
+      Tags:
+        - Key: Project
+          Value: centriminds
+        - Key: DataClassification
+          Value: customer-data
+
+  BackupBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Metadata:
+      guard:
+        SuppressedRules:
+          - S3_BUCKET_SSL_REQUESTS_ONLY # DenyInsecureTransport below, scoped to this bucket
+    Properties:
+      Bucket: !If
+        - CreateBackupBucket
+        - !Ref BackupBucket
+        - !Sub '${AWS::StackName}-backups-${AWS::AccountId}'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:s3:::${AWS::StackName}-backups-${AWS::AccountId}'
+              - !Sub 'arn:${AWS::Partition}:s3:::${AWS::StackName}-backups-${AWS::AccountId}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+  # ── Backup monitoring ──────────────────────────────────────────────────
+  # The instance reports the age of its newest successful backup every hour
+  # (deploy/aws/backup.sh report). The alarm fires when the newest backup is
+  # older than 8 days, or when reports stop for 6 hours (instance or
+  # reporting down): a backup that silently stopped working is the failure
+  # this exists to catch. Alarm messages carry no customer data, so the topic
+  # uses no KMS key (CloudWatch cannot publish to one encrypted with the
+  # AWS-managed aws/sns key).
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: CentriMinds alerts
+      Tags:
+        - Key: Project
+          Value: centriminds
+
+  AlertTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref AlertTopic
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudWatchAlarms
+            Effect: Allow
+            Principal:
+              Service: cloudwatch.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref AlertTopic
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !Sub 'arn:${AWS::Partition}:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:*'
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: sns:Publish
+            Resource: !Ref AlertTopic
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+  AlertEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlertEmail
+    Properties:
+      TopicArn: !Ref AlertTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+  BackupAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: >-
+        CentriMinds data backup is overdue (newest backup older than 8 days)
+        or the instance stopped reporting. Check deploy/aws/backup.sh on the
+        instance.
+      Namespace: CentriMinds
+      MetricName: BackupAgeHours
+      Dimensions:
+        - Name: Stack
+          Value: !Ref AWS::StackName
+      Statistic: Maximum
+      Period: 3600
+      EvaluationPeriods: 6
+      DatapointsToAlarm: 6
+      Threshold: 192
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: breaching
+      AlarmActions:
+        - !Ref AlertTopic
+      OKActions:
+        - !Ref AlertTopic
+
+  # ── EC2 instance (SSM-managed, no SSH) ─────────────────────────────────
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore'
+      Tags:
+        - Key: Project
+          Value: centriminds
+
+  # Least privilege for the host: read deploy bundles, write/read backups
+  # (never delete), report backup age. A managed policy rather than inline,
+  # so it is reviewable on its own.
+  InstancePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: CentriMinds instance - deploy bundles, data backups, backup-age metric.
+      Roles:
+        - !Ref InstanceRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: ReadDeployBundle
+            Effect: Allow
+            Action: s3:GetObject
+            Resource: !Sub '${DeployBucket.Arn}/*'
+          - Sid: ListDeployBundle
+            Effect: Allow
+            Action: s3:ListBucket
+            Resource: !GetAtt DeployBucket.Arn
+          # Write and read backups for backup.sh / restore.sh. No
+          # s3:DeleteObject*: backups expire only through the lifecycle.
+          - Sid: WriteAndReadBackups
+            Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:GetObject
+            Resource:
+              - !Sub 'arn:${AWS::Partition}:s3:::${AWS::StackName}-backups-${AWS::AccountId}/weekly/*'
+              - !Sub 'arn:${AWS::Partition}:s3:::${AWS::StackName}-backups-${AWS::AccountId}/pre-deploy/*'
+          - Sid: ListBackups
+            Effect: Allow
+            Action: s3:ListBucket
+            Resource: !Sub 'arn:${AWS::Partition}:s3:::${AWS::StackName}-backups-${AWS::AccountId}'
+          - Sid: ReportBackupAge
+            Effect: Allow
+            Action: cloudwatch:PutMetricData
+            Resource: '*'
+            Condition:
+              StringEquals:
+                cloudwatch:namespace: CentriMinds
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref InstanceRole
+
+  # Caddy terminates TLS on the box, so 80 (ACME HTTP-01 + redirect) and 443
+  # (TCP for HTTP/1.1+2, UDP for HTTP/3) are public. No SSH, SSM only.
+  SecurityGroupWeb:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: CentriMinds - public HTTP/HTTPS to Caddy; no SSH.
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP (ACME challenge + redirect to HTTPS)
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS
+        - IpProtocol: udp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTP/3 (QUIC)
+      Tags:
+        - Key: Project
+          Value: centriminds
+
+  # All properties are set on the instance itself: these update in place
+  # (InstanceType and UserData with a stop/start). A launch template would
+  # turn every edit into a new template version, and a new version replaces
+  # the instance together with its root volume, which holds the data. Only
+  # ImageId and the volume settings still replace it, and provision.sh
+  # applies such a change only after a confirmation and a fresh backup
+  # (SKIP_BACKUP=1 skips the backup).
+  Instance:
+    Type: AWS::EC2::Instance
+    Metadata:
+      guard:
+        SuppressedRules:
+          - EC2_INSTANCES_IN_VPC # runs in the account's default VPC
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref InstanceProfile
+      SecurityGroupIds:
+        - !GetAtt SecurityGroupWeb.GroupId
+      # IMDSv2 only; hop limit 1 keeps containers from reaching instance
+      # credentials (host-side scripts use the role, containers do not).
+      MetadataOptions:
+        HttpTokens: required
+        HttpPutResponseHopLimit: 1
+      Monitoring: true
+      EbsOptimized: true
+      # 30 GB: OS, images, data and room for a backup archive in /var/tmp.
+      # Grow it in place (ec2 modify-volume + growpart/xfs_growfs); changing
+      # the size here would replace the instance.
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 30
+            VolumeType: gp3
+            Encrypted: true
+            DeleteOnTermination: true
+      PropagateTagsToVolumeOnCreation: true
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          set -euxo pipefail
+          # 2 GB swap: the frontend (vite) + scipy builds spike past 2 GB RAM.
+          if [ ! -f /swapfile ]; then
+            dd if=/dev/zero of=/swapfile bs=1M count=2048
+            chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+            echo '/swapfile none swap defaults 0 0' >> /etc/fstab
+          fi
+          dnf install -y docker tar
+          systemctl enable --now docker
+          # Compose is not packaged for Amazon Linux: the release binary is
+          # pinned and checked against its published SHA-256 (the release's
+          # checksums.txt), so a changed or truncated download never runs as
+          # root. Bump both together.
+          COMPOSE_VERSION=v5.5.1
+          COMPOSE_SHA256=db1889184726840f75c4f9c001048430d4f25b3be3cb084d3ddd762bc0aed576
+          curl -fsSL "https://github.com/docker/compose/releases/download/$COMPOSE_VERSION/docker-compose-linux-x86_64" \
+            -o /tmp/docker-compose
+          echo "$COMPOSE_SHA256  /tmp/docker-compose" | sha256sum -c -
+          install -D -m 0755 /tmp/docker-compose /usr/local/lib/docker/cli-plugins/docker-compose
+          rm -f /tmp/docker-compose
+          mkdir -p /opt/centriminds
+      Tags:
+        - Key: Name
+          Value: !Ref AWS::StackName
+        - Key: Project
+          Value: centriminds
+
+  # Stable public IP: the domain's A records point here (at whichever DNS
+  # provider holds the zone), so it must survive instance stop/start and
+  # replacement.
+  Eip:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      InstanceId: !Ref Instance
+      Tags:
+        - Key: Name
+          Value: !Ref AWS::StackName
+        - Key: Project
+          Value: centriminds
+
+Outputs:
+  WebUrl:
+    Description: Public HTTPS URL (once DNS points at PublicIp).
+    Value: !Sub 'https://${DomainName}'
+  DomainName:
+    Value: !Ref DomainName
+  PublicIp:
+    Description: Elastic IP - set as the A record for the domain and www at your DNS provider.
+    Value: !GetAtt Eip.PublicIp
+  InstanceId:
+    Description: EC2 instance id (target for SSM sessions / deploy commands).
+    Value: !Ref Instance
+  DeployBucket:
+    Description: Private S3 bucket that holds the source deploy bundle.
+    Value: !Ref DeployBucket
+  BackupBucket:
+    Description: Retained S3 bucket with the weekly and pre-deploy data backups.
+    Value: !Sub '${AWS::StackName}-backups-${AWS::AccountId}'
+  AlertTopic:
+    Description: SNS topic for backup alerts (subscribe more endpoints as needed).
+    Value: !Ref AlertTopic

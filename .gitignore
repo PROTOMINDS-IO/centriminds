@@ -1,0 +1,66 @@
+# ─── Python ──────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+build/
+dist/
+*.db
+*.db-journal
+
+# ─── Node / Vite ─────────────────────────────────────────────────────────
+node_modules/
+**/dist/
+**/.vite/
+.cache/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ─── App data (DB, uploaded .odx files) ──────────────────────────────────
+# The Docker volume keeps real data; this catches local-dev runs.
+backend/data/
+data/
+
+# ─── Secrets / local-only config ─────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ─── Personal tool configuration (AI assistants, MCP servers) ─────────────
+.claude/
+CLAUDE.md
+.mcp.json
+.history/
+
+# ─── Editor / IDE ────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ─── OS noise ────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ─── Logs ────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ─── VS Code Local History ────────────────────────────────────────────────
+.history/

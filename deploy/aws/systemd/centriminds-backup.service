@@ -1,0 +1,13 @@
+[Unit]
+Description=CentriMinds weekly data backup to S3
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/centriminds-backup run weekly
+# Retry a transient failure (network, S3) before the alarm has to notice.
+Restart=on-failure
+RestartSec=15min
+Nice=10
+IOSchedulingClass=idle
