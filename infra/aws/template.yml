@@ -58,6 +58,24 @@ Parameters:
     Default: 0
     MinValue: 0
     Description: Monthly cost alert in USD, emailed to AlertEmail. 0 = no budget.
+  # Off hours: the instance is stopped at StopHour and started at StartHour
+  # every day (ScheduleTimezone), so a demo with little traffic pays for the
+  # hours it is up. Empty = always on. The site is down while stopped, and a
+  # deploy started then fails; missed backups and demo resets run at start.
+  StopHour:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^([01]?[0-9]|2[0-3])$'
+    Description: Hour (0-23) to stop the instance every day. Empty = always on.
+  StartHour:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^([01]?[0-9]|2[0-3])$'
+    Description: Hour (0-23) to start the instance again every day.
+  ScheduleTimezone:
+    Type: String
+    Default: Europe/Berlin
+    Description: IANA time zone of StopHour and StartHour.
   # The access-log and backup buckets outlive the stack (DeletionPolicy
   # Retain) under fixed names. When the stack is created again after a
   # teardown, provision.sh finds them and sets these to true: the stack then
@@ -82,6 +100,9 @@ Conditions:
   CreateOidcProvider: !And
     - !Condition HasDeployRole
     - !Equals [!Ref GitHubOidcProviderArn, '']
+  HasOffHours: !And
+    - !Not [!Equals [!Ref StopHour, '']]
+    - !Not [!Equals [!Ref StartHour, '']]
   HasBudget: !And
     - !Condition HasAlertEmail
     - !Not [!Equals [!Ref MonthlyBudgetUsd, 0]]
@@ -393,17 +414,19 @@ Resources:
     Properties:
       AlarmDescription: >-
         CentriMinds data backup is overdue (newest backup older than 8 days)
-        or the instance stopped reporting. Check deploy/aws/backup.sh on the
-        instance.
+        or the instance stopped reporting for 12 hours. Check
+        deploy/aws/backup.sh on the instance.
       Namespace: CentriMinds
       MetricName: BackupAgeHours
       Dimensions:
         - Name: Stack
           Value: !Ref AWS::StackName
       Statistic: Maximum
+      # 12 hours: longer than a nightly stop (StopHour..StartHour), so off
+      # hours are not reported as an outage.
       Period: 3600
-      EvaluationPeriods: 6
-      DatapointsToAlarm: 6
+      EvaluationPeriods: 12
+      DatapointsToAlarm: 12
       Threshold: 192
       ComparisonOperator: GreaterThanThreshold
       TreatMissingData: breaching
@@ -663,7 +686,9 @@ Resources:
       MetadataOptions:
         HttpTokens: required
         HttpPutResponseHopLimit: 1
-      Monitoring: true
+      # Basic (5-minute) monitoring: enough for a low-traffic demo, and the
+      # status checks behind InstanceRecoveryAlarm stay 1-minute regardless.
+      Monitoring: false
       EbsOptimized: true
       # 30 GB: OS, images, data and room for a backup archive in /var/tmp.
       # Grow it in place (ec2 modify-volume + growpart/xfs_growfs); changing
@@ -705,6 +730,64 @@ Resources:
           Value: !Ref AWS::StackName
         - Key: Project
           Value: centriminds
+
+  # ── Off hours: stop and start the instance on a daily schedule ────────
+  # EventBridge Scheduler calls EC2 directly (no Lambda); the role can
+  # start and stop this one instance and nothing else.
+  OffHoursRole:
+    Type: AWS::IAM::Role
+    Condition: HasOffHours
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+      Policies:
+        - PolicyName: start-stop-instance
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:StartInstances
+                  - ec2:StopInstances
+                Resource: !Sub 'arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${Instance}'
+
+  StopSchedule:
+    Type: AWS::Scheduler::Schedule
+    Condition: HasOffHours
+    Properties:
+      Name: !Sub '${AWS::StackName}-stop'
+      Description: Stop the CentriMinds instance for the night.
+      ScheduleExpression: !Sub 'cron(0 ${StopHour} * * ? *)'
+      ScheduleExpressionTimezone: !Ref ScheduleTimezone
+      FlexibleTimeWindow:
+        Mode: 'OFF'
+      Target:
+        Arn: !Sub 'arn:${AWS::Partition}:scheduler:::aws-sdk:ec2:stopInstances'
+        RoleArn: !GetAtt OffHoursRole.Arn
+        Input: !Sub '{"InstanceIds": ["${Instance}"]}'
+
+  StartSchedule:
+    Type: AWS::Scheduler::Schedule
+    Condition: HasOffHours
+    Properties:
+      Name: !Sub '${AWS::StackName}-start'
+      Description: Start the CentriMinds instance in the morning.
+      ScheduleExpression: !Sub 'cron(0 ${StartHour} * * ? *)'
+      ScheduleExpressionTimezone: !Ref ScheduleTimezone
+      FlexibleTimeWindow:
+        Mode: 'OFF'
+      Target:
+        Arn: !Sub 'arn:${AWS::Partition}:scheduler:::aws-sdk:ec2:startInstances'
+        RoleArn: !GetAtt OffHoursRole.Arn
+        Input: !Sub '{"InstanceIds": ["${Instance}"]}'
 
   # Stable public IP: the domain's A records point here (at whichever DNS
   # provider holds the zone), so it must survive instance stop/start and

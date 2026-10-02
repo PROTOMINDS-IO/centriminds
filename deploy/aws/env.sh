@@ -17,7 +17,8 @@
 # Per script (see each script's header):
 #   provision.sh  ALERT_EMAIL, INSTANCE_TYPE, BACKUP_RETENTION_DAYS,
 #                 REFRESH_AMI=1, SKIP_BACKUP=1, GITHUB_REPO,
-#                 GITHUB_OIDC_PROVIDER_ARN, MONTHLY_BUDGET_USD
+#                 GITHUB_OIDC_PROVIDER_ARN, MONTHLY_BUDGET_USD, OFF_HOURS,
+#                 SCHEDULE_TZ
 #   deploy.sh     REGISTRATION_EMAILS, DEMO_EMAIL, SKIP_PREDEPLOY_BACKUP=1
 #   demo-seed.sh  (an account's email as its argument)
 #   teardown.sh   SKIP_BACKUP=1

@@ -9,6 +9,8 @@
 #   REFRESH_AMI=1 ./deploy/aws/provision.sh                 # newer Amazon Linux (replaces the instance)
 #   GITHUB_REPO=owner/repo ./deploy/aws/provision.sh        # deploy role for GitHub Actions
 #   MONTHLY_BUDGET_USD=40 ./deploy/aws/provision.sh         # cost alert to ALERT_EMAIL
+#   OFF_HOURS=21-6 ./deploy/aws/provision.sh                # stop 21:00, start 06:00 daily ("none" = always on)
+#   SCHEDULE_TZ=Europe/Berlin ./deploy/aws/provision.sh     # time zone of OFF_HOURS
 #
 # Every run goes through a change set. A change that would replace the
 # instance (a new AMI, different volume settings) would also replace the
@@ -89,6 +91,24 @@ if [[ -n "${MONTHLY_BUDGET_USD:-}" ]]; then
 else
   keep_param MonthlyBudgetUsd
 fi
+
+# Off hours "STOP-START" in whole hours of SCHEDULE_TZ ("none" = always on).
+if [[ -n "${OFF_HOURS:-}" ]]; then
+  if [[ "$OFF_HOURS" == none ]]; then
+    set_param StopHour ""
+    set_param StartHour ""
+  elif [[ "$OFF_HOURS" =~ ^([0-9]{1,2})-([0-9]{1,2})$ ]]; then
+    set_param StopHour "$((10#${BASH_REMATCH[1]}))"
+    set_param StartHour "$((10#${BASH_REMATCH[2]}))"
+  else
+    echo "OFF_HOURS must look like 21-6 (stop at 21:00, start at 06:00) or be none." >&2
+    exit 1
+  fi
+else
+  keep_param StopHour
+  keep_param StartHour
+fi
+if [[ -n "${SCHEDULE_TZ:-}" ]]; then set_param ScheduleTimezone "$SCHEDULE_TZ"; else keep_param ScheduleTimezone; fi
 
 # The AMI is pinned: resolved once at creation, then kept, because a new
 # image replaces the instance. REFRESH_AMI=1 opts in to the latest image.
