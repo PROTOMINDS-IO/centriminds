@@ -1,5 +1,10 @@
 # CentriMinds
 
+[![CI](https://github.com/protominds-io/centriminds/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/protominds-io/centriminds/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Dependabot](https://img.shields.io/badge/dependabot-enabled-025e8c?logo=dependabot)](.github/dependabot.yml)
+[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
+
 **Vibration analysis for decanter centrifuges, in 3D.** Upload a VIBXPERT /
 Omnitrend `.odx` speed sweep and CentriMinds draws it as an interactive
 waterfall with the machine's order lines on it. It suggests resonance zones,
@@ -407,6 +412,10 @@ infrastructure (cfn-lint, shellcheck), a secret scan of every commit
 (gitleaks) and a Docker build with a smoke test through nginx. Dependabot
 opens weekly update PRs for npm, uv, Docker images, Compose files and GitHub
 Actions; Node and Python versions are upgraded by hand (see CONTRIBUTING.md).
+
+Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) and the
+[Code of Conduct](CODE_OF_CONDUCT.md). Issues and pull requests use the
+templates in `.github/`.
 
 ## Tech stack
 
