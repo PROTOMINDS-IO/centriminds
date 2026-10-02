@@ -1,0 +1,56 @@
+name: Bug report
+description: Something in CentriMinds does not work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Do not attach measurement files, machine
+        profiles or other customer data: describe the export instead, or
+        reproduce with made-up numbers. Security problems go to
+        [private reporting](https://github.com/protominds-io/centriminds/security/advisories/new).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what you saw instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Upload a speed sweep exported from …
+        2. Open the 3D waterfall …
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: The commit on `main` or the deployment you use.
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Where it runs
+      options:
+        - Local (make up / make dev)
+        - Self-hosted on AWS
+        - Self-hosted elsewhere
+        - Hosted by Protominds
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and OS
+      placeholder: Firefox 150 on Windows 11
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: >-
+        Browser console errors, `make logs` output, screenshots. Issues are
+        public: remove tokens, passwords, email addresses, hostnames and IP
+        addresses first.
+      render: text

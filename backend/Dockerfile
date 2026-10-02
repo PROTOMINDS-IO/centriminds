@@ -23,7 +23,7 @@ RUN useradd --system --uid 1000 --create-home appuser \
 # pin in step with the Makefile and CI); its download cache persists
 # between builds as a BuildKit cache mount.
 COPY pyproject.toml uv.lock ./
-RUN --mount=from=ghcr.io/astral-sh/uv:0.12.21,source=/uv,target=/bin/uv \
+RUN --mount=from=ghcr.io/astral-sh/uv:0.12.22,source=/uv,target=/bin/uv \
     --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-project
 

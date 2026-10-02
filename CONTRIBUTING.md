@@ -64,12 +64,79 @@ must be green before a pull request is merged.
   helps: `feat(frontend): …`, `fix(backend): …`, `docs: …`; mark breaking
   changes with `!`. Explain the why in the body.
 - Pull requests are rebased onto `main`, which keeps the history linear.
+  The pull request template asks for the what, the why and a short
+  checklist; bugs and feature ideas start from the issue forms.
+
+## Project layout
+
+```
+backend/app/
+  main.py              app factory, routers, health check
+  config.py            settings from the environment (pydantic-settings)
+  db.py                engine (SQLite pragmas), sessions, startup migrations
+  models.py            database tables (SQLAlchemy typed ORM)
+  schemas.py           API request/response shapes (Pydantic): the public contract
+  auth.py, ratelimit.py  sign-in, JWT sessions, per-IP limits on auth endpoints
+  errors.py            AppError: HTTP errors with a code the UI translates
+  routers/             one module per resource; thin HTTP layer
+  analysis/            the pipeline above, one module per stage
+  physics/             machine profile format, formula language, speeds, templates
+  profiles.py          profiles in the database: built-ins, recognition
+  io/                  .odx parser, machine speeds workbook import
+  backup.py            `python -m app.backup create|verify|restore`
+  demo.py              `python -m app.demo seed|reset`: synthetic demo data
+backend/alembic/versions/   schema migrations (applied at startup)
+backend/tests/              pytest; synthetic .odx files and workbooks
+
+frontend/src/
+  api/                 typed fetch client + DTO types (mirror schemas.py)
+  i18n/                useI18n (t, fmt); en/ is the source, de/ is typed against it
+  hooks/               React Query hooks, presence (exit animations), …
+  lib/                 theme, colour schemes, severity zones, ticks, motion
+  store/               zustand stores (auth, settings, workspace view state)
+  components/ui/       shared primitives: icons, controls, Panel, Reveal, …
+  components/waterfall/  the 3D view: model, surface, scene parts, overlays,
+                       camera, axes, display settings, slice, legend
+  components/workspace/  the floating cards around the 3D view
+  components/machines/ the machine profile editor
+  components/          app components (ConditionPanel, MachineInfoCard, …)
+  pages/               routes
+
+deploy/aws/            provision, deploy, backup, restore, demo, teardown scripts
+deploy/hostinger/      optional DNS helper
+infra/aws/template.yml CloudFormation stack (EC2, S3 backups, alarms)
+docs/                  machine profiles, architecture, self-hosting, screenshots
+```
 
 ## Conventions
 
-The README's [conventions](README.md#project-layout--where-to-add-things)
-cover the API, UI building blocks, colours, text, errors, the 3D view and
-tests. In addition:
+These keep changes safe:
+
+- **API changes**: add fields to `schemas.py` and `api/types.ts`; keep old
+  fields until the frontend no longer reads them. New tables or columns get
+  a new Alembic migration.
+- **UI**: build from `components/ui/` (Panel, controls, icons, CommitInput)
+  instead of one-off styling.
+- **Colours**: only the tokens in `src/index.css`, defined by role and
+  flipped with the theme (`<html data-theme>`): `ink-*` neutrals (50 =
+  strongest text … 950 = page), `accent-*`, `edge/NN` for hairlines and
+  overlays (never `white/…`), `zone-*`, `primary`. No hex in components; the
+  WebGL scene picks its palette with `useResolvedTheme()`. Colours handed to
+  WebGL as numbers (vertex and instance colours) must be linear light
+  (`colormap(…, 'linear')` or `setRGB(…, SRGBColorSpace)`), or they render
+  paler than CSS draws them.
+- **Text**: no user-visible string in components. Add a key to
+  `src/i18n/en/<area>.ts` and its translation to `src/i18n/de/<area>.ts`,
+  then `t('area.key')`; numbers, units and dates go through `fmt`. German
+  uses the formal "Sie".
+- **Errors**: the backend raises `AppError(status, code, message, params)`;
+  give each new code a message in `src/i18n/*/errors.ts`.
+- **3D view**: position everything through `WaterfallModel`; never map
+  coordinates by hand.
+- **Tests**: backend in `backend/tests/` (pytest), frontend next to the code
+  as `*.test.ts(x)` (Vitest). `make check` stays green.
+
+In addition:
 
 - **Comments** explain why and give the context a reader needs, not what
   the next line does. Each module starts with a short header saying what it
@@ -103,7 +170,7 @@ tests. In addition:
     `.github/workflows/ci.yml`, every `python:` image in the `Makefile`,
     and `requires-python` and ruff's `target-version` in
     `backend/pyproject.toml`;
-  - then the versions this file and the README name.
+  - then the versions this file and the README (tech stack) name.
 
   uv is pinned the same way, in `backend/Dockerfile`, the `Makefile`,
   `.github/workflows/ci.yml` and `required-version` in
@@ -112,4 +179,5 @@ tests. In addition:
   runs gitleaks on every commit. Fake credentials in tests that gitleaks
   flags should follow the allowlisted patterns in `.gitleaks.toml`.
 
+Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
 Security problems are reported privately; see [SECURITY.md](SECURITY.md).

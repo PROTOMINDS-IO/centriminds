@@ -21,6 +21,10 @@ updates:
     ignore:
       - dependency-name: '@types/node'
         update-types: [version-update:semver-major]
+      # typescript-eslint 8 peers on typescript <6.1; take TS 7 together
+      # with the typescript-eslint release that supports it.
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
 
   - package-ecosystem: uv
     directory: /backend
