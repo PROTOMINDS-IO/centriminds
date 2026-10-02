@@ -64,6 +64,8 @@ must be green before a pull request is merged.
   helps: `feat(frontend): …`, `fix(backend): …`, `docs: …`; mark breaking
   changes with `!`. Explain the why in the body.
 - Pull requests are rebased onto `main`, which keeps the history linear.
+  The pull request template asks for the what, the why and a short
+  checklist; bugs and feature ideas start from the issue forms.
 
 ## Conventions
 
@@ -112,4 +114,5 @@ tests. In addition:
   runs gitleaks on every commit. Fake credentials in tests that gitleaks
   flags should follow the allowlisted patterns in `.gitleaks.toml`.
 
+Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
 Security problems are reported privately; see [SECURITY.md](SECURITY.md).
