@@ -58,13 +58,16 @@ trap 'rm -rf "$BUNDLE_DIR"' EXIT
 # settings, caches, node_modules, data, other worktrees) stays out; a file
 # deleted but not yet committed is skipped. COPYFILE_DISABLE stops macOS
 # bsdtar from embedding AppleDouble (._*) files, which carry null bytes and
-# break Alembic's version-file loader on the box.
+# break Alembic's version-file loader on the box. --no-xattrs keeps extended
+# attributes (e.g. com.apple.provenance) out as well: GNU tar on the box
+# warns about each one, and the warnings crowd the SSM output, which is
+# capped, so a real error at the end is cut off.
 export COPYFILE_DISABLE=1
 git -C "$REPO_DIR" ls-files -z --cached --others --exclude-standard \
   | while IFS= read -r -d '' f; do
       if [[ -e "$REPO_DIR/$f" ]]; then printf '%s\0' "$f"; fi
     done \
-  | tar -czf "$BUNDLE" -C "$REPO_DIR" --null -T -
+  | tar --no-xattrs -czf "$BUNDLE" -C "$REPO_DIR" --null -T -
 
 echo "==> Uploading bundle to s3://$BUCKET/deploy/src.tar.gz"
 awsx s3 cp "$BUNDLE" "s3://$BUCKET/deploy/src.tar.gz"
