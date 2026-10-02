@@ -19,6 +19,7 @@ Backend environment variables (`backend/app/config.py`):
 | `DATA_DIR` | `./data` | SQLite database and uploads (`/data` in Docker). |
 | `MAX_UPLOAD_MB` | `100` | Upload size cap (also enforced by nginx and Caddy). |
 | `AUTH_ATTEMPTS_PER_MINUTE` | `10` | Sign-in/sign-up attempts per client IP. |
+| `DEMO_EMAIL` | empty | The shared demo login: its password, name and sessions cannot be changed. |
 
 ## On AWS
 
@@ -56,6 +57,10 @@ of `deploy/aws/env.sh`):
 | `BACKUP_RETENTION_DAYS` | `90` | How long weekly backups are kept (`provision.sh`). |
 | `REFRESH_AMI` | `0` | `1` moves to the newest Amazon Linux, which replaces the instance (`provision.sh`). |
 | `REGISTRATION_EMAILS` | keeps current | Who may sign up, or `none` (`deploy.sh`). |
+| `DEMO_EMAIL` | keeps current | The shared demo login, reset nightly, or `none` (`deploy.sh`). |
+| `GITHUB_REPO` | keeps current | `owner/repo` whose `production` environment may deploy, or `none` (`provision.sh`). |
+| `GITHUB_OIDC_PROVIDER_ARN` | keeps current | The account's existing GitHub OIDC provider, if it has one (`provision.sh`). |
+| `MONTHLY_BUDGET_USD` | keeps current | Monthly cost alert to `ALERT_EMAIL`; `0` for none (`provision.sh`). |
 | `SKIP_PREDEPLOY_BACKUP`, `SKIP_BACKUP` | `0` | Skip the safety backup before a deploy, or before a replacement or teardown. |
 
 ```bash
@@ -83,6 +88,45 @@ REGISTRATION_EMAILS=you@example.com,colleague@example.com ./deploy/aws/deploy.sh
 REGISTRATION_EMAILS=none ./deploy/aws/deploy.sh
 ```
 
+### Demo account and sample data
+
+`python -m app.demo` adds a made-up decanter and three analysed run-ups to
+an account. Everything in it is synthetic (the Cyclo template with invented
+values, sweeps generated from its own order lines), so a public instance
+carries no customer data.
+
+```bash
+REGISTRATION_EMAILS=demo@example.com ./deploy/aws/deploy.sh   # 1. let the demo login sign up
+#                                                               2. sign up on the site with its password
+REGISTRATION_EMAILS=none DEMO_EMAIL=demo@example.com ./deploy/aws/deploy.sh   # 3. lock it, reset nightly
+./deploy/aws/demo-seed.sh client@example.com                   # sample projects for an invited account, once
+```
+
+With `DEMO_EMAIL` set, that account's password, name and sessions cannot be
+changed, and a timer resets it to the sample data every night at 03:30 UTC.
+Invited accounts are never reset. Locally: `python -m app.demo seed --email
+you@example.com` (add `--create` with `DEMO_PASSWORD` set to create it).
+
+### Auto deploy from GitHub
+
+`.github/workflows/deploy.yml` deploys `main` after CI passed on it. The job
+runs in the repository's `production` environment, so it waits for that
+environment's reviewer; the deployment history and logs are public, the
+right to deploy is not. AWS access is GitHub OIDC (no stored keys): the
+stack's `DeployRole` trusts only that environment and can only do what
+`deploy.sh` does. The workflow masks the account id, bucket names, instance
+id and IP before anything prints them.
+
+```bash
+GITHUB_REPO=owner/repo ./deploy/aws/provision.sh   # creates DeployRole, prints its ARN
+```
+
+Then, in the repository's settings (admin): create the environment
+`production` with yourself as required reviewer and `main` as the only
+deployment branch, and add the printed ARN as its secret
+`AWS_DEPLOY_ROLE_ARN`. Optional environment variables: `AWS_REGION`,
+`STACK`. Never commit the ARN: it contains the account id.
+
 Other hosts work too: any machine with Docker can run
 `deploy/aws/docker-compose.yml` (or the root `docker-compose.yml` behind a
 TLS proxy of your own; tell nginx about that proxy as `real-ip.conf` does).
@@ -104,8 +148,12 @@ database and the uploaded `.odx` files.
   days), weekly backups kept 90 days. The bucket is retained if the stack is
   deleted, the instance can write backups but never delete them, and access
   is logged.
-- **Monitoring**: the instance reports the age of its newest backup every
-  hour; an alarm emails `ALERT_EMAIL` if it passes 8 days or the reports stop.
+- **Monitoring**: the instance reports the age of its newest backup and its
+  disk use every hour; alarms email `ALERT_EMAIL` if the backup passes 8 days,
+  the reports stop or the disk is more than 80 % full. A failed host is
+  recovered automatically, and `MONTHLY_BUDGET_USD` adds a cost alert.
+  Container logs are capped at 30 MB each. Uptime is best watched from
+  outside (any HTTP monitor on `https://<domain>/api/health`).
 
 ```bash
 ./deploy/aws/backup-now.sh                                            # back up now

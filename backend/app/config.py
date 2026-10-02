@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     max_upload_mb: int = Field(default=100, ge=1, le=1024)
     #: Sign-in, sign-up and password-change attempts per client IP per minute.
     auth_attempts_per_minute: int = Field(default=10, ge=1, le=1000)
+    #: The shared demo login (app/demo.py): its password, name and sessions
+    #: are locked, so one visitor cannot lock the others out. Empty: none.
+    demo_email: str = ""
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -61,6 +64,11 @@ class Settings(BaseSettings):
         if isinstance(value, list):
             return [e.strip().lower() for e in value if isinstance(e, str) and e.strip()]
         return value
+
+    @field_validator("demo_email")
+    @classmethod
+    def _lower_demo_email(cls, value: str) -> str:
+        return value.strip().lower()
 
     @field_validator("data_dir")
     @classmethod

@@ -16,11 +16,16 @@
 #
 # Per script (see each script's header):
 #   provision.sh  ALERT_EMAIL, INSTANCE_TYPE, BACKUP_RETENTION_DAYS,
-#                 REFRESH_AMI=1, SKIP_BACKUP=1
-#   deploy.sh     REGISTRATION_EMAILS, SKIP_PREDEPLOY_BACKUP=1
+#                 REFRESH_AMI=1, SKIP_BACKUP=1, GITHUB_REPO,
+#                 GITHUB_OIDC_PROVIDER_ARN, MONTHLY_BUDGET_USD
+#   deploy.sh     REGISTRATION_EMAILS, DEMO_EMAIL, SKIP_PREDEPLOY_BACKUP=1
+#   demo-seed.sh  (an account's email as its argument)
 #   teardown.sh   SKIP_BACKUP=1
 #   ../hostinger/set-dns.sh  HOSTINGER_API_TOKEN (optional DNS helper)
 PROFILE="${AWS_PROFILE-centriminds}"
+# An empty AWS_PROFILE in the environment makes the AWS CLI look for a
+# profile named "" and fail; unset, it uses the default credential chain.
+if [[ -z "$PROFILE" ]]; then unset AWS_PROFILE; fi
 REGION="${AWS_REGION:-eu-central-1}"
 STACK="${STACK:-centriminds}"
 DOMAIN="${DOMAIN:-centriminds.de}"

@@ -34,3 +34,7 @@ def test_production_accepts_closed_or_invite_only_sign_up(changes):
 def test_production_refuses_the_development_secret():
     with pytest.raises(ValidationError, match="JWT_SECRET"):
         Settings(app_env="production", allow_registration=False)
+
+
+def test_demo_email_is_compared_lower_case() -> None:
+    assert Settings(demo_email=" Demo@Example.com ").demo_email == "demo@example.com"

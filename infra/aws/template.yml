@@ -39,6 +39,25 @@ Parameters:
     Default: ''
     AllowedPattern: '^$|^[^@\s]+@[^@\s]+\.[^@\s]+$'
     Description: Optional address for backup alerts (confirm the SNS subscription email). Empty = no email.
+  # Auto deploy (.github/workflows/deploy.yml): GitHub Actions jobs in this
+  # repository's `production` environment may assume DeployRole through
+  # OIDC, so no AWS keys are stored anywhere. Empty = no deploy role.
+  GitHubRepo:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+    Description: owner/repo whose production environment may deploy. Empty = no deploy role.
+  # An account has at most one OIDC provider per URL: pass its ARN when one
+  # exists already, or leave this empty to let the stack create it.
+  GitHubOidcProviderArn:
+    Type: String
+    Default: ''
+    Description: Existing token.actions.githubusercontent.com OIDC provider ARN. Empty = create one.
+  MonthlyBudgetUsd:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    Description: Monthly cost alert in USD, emailed to AlertEmail. 0 = no budget.
   # The access-log and backup buckets outlive the stack (DeletionPolicy
   # Retain) under fixed names. When the stack is created again after a
   # teardown, provision.sh finds them and sets these to true: the stack then
@@ -59,6 +78,13 @@ Conditions:
   HasAlertEmail: !Not [!Equals [!Ref AlertEmail, '']]
   CreateAccessLogBucket: !Equals [!Ref AccessLogBucketExists, 'false']
   CreateBackupBucket: !Equals [!Ref BackupBucketExists, 'false']
+  HasDeployRole: !Not [!Equals [!Ref GitHubRepo, '']]
+  CreateOidcProvider: !And
+    - !Condition HasDeployRole
+    - !Equals [!Ref GitHubOidcProviderArn, '']
+  HasBudget: !And
+    - !Condition HasAlertEmail
+    - !Not [!Equals [!Ref MonthlyBudgetUsd, 0]]
 
 Resources:
   # ── S3: server access logs of the other buckets ───────────────────────
@@ -386,6 +412,142 @@ Resources:
       OKActions:
         - !Ref AlertTopic
 
+  # Disk use, published hourly with the backup age (backup.sh report).
+  # Missing data is not breaching here: BackupAgeAlarm already fires when
+  # the reports stop.
+  DiskUsageAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: >-
+        CentriMinds root volume is more than 80 % full. Grow it in place
+        (README, Self-hosting on AWS) or prune old Docker images.
+      Namespace: CentriMinds
+      MetricName: DiskUsedPercent
+      Dimensions:
+        - Name: Stack
+          Value: !Ref AWS::StackName
+      Statistic: Maximum
+      Period: 3600
+      EvaluationPeriods: 2
+      DatapointsToAlarm: 2
+      Threshold: 80
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlertTopic
+      OKActions:
+        - !Ref AlertTopic
+
+  # A failed host (system status check) moves the instance to healthy
+  # hardware with the same id, volume, and Elastic IP; nobody has to act.
+  InstanceRecoveryAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: CentriMinds instance failed its system status check; EC2 is recovering it.
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed_System
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref Instance
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Sub 'arn:${AWS::Partition}:automate:${AWS::Region}:ec2:recover'
+        - !Ref AlertTopic
+
+  MonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Condition: HasBudget
+    Properties:
+      Budget:
+        BudgetName: !Sub '${AWS::StackName}-monthly'
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: !Ref MonthlyBudgetUsd
+          Unit: USD
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref AlertEmail
+        - Notification:
+            NotificationType: FORECASTED
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref AlertEmail
+
+  # ── GitHub Actions deploy role (OIDC, no stored keys) ─────────────────
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateOidcProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+
+  # Trusted only by jobs in the repository's `production` environment, which
+  # GitHub runs only after its required reviewer approves. It can do what
+  # deploy.sh does and nothing more: read the stack outputs, upload the
+  # source bundle, run the deploy command on this one instance. That command
+  # runs as root on the instance, so this role is as powerful as a deploy:
+  # keep the environment's reviewer list short.
+  DeployRole:
+    Type: AWS::IAM::Role
+    Condition: HasDeployRole
+    Properties:
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If
+                - CreateOidcProvider
+                - !Ref GitHubOidcProvider
+                - !Ref GitHubOidcProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub 'repo:${GitHubRepo}:environment:production'
+      Policies:
+        - PolicyName: deploy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadStackOutputs
+                Effect: Allow
+                Action: cloudformation:DescribeStacks
+                Resource: !Ref AWS::StackId
+              - Sid: UploadBundle
+                Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub '${DeployBucket.Arn}/deploy/*'
+              - Sid: RunDeployOnInstance
+                Effect: Allow
+                Action: ssm:SendCommand
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${Instance}'
+                  - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}::document/AWS-RunShellScript'
+              - Sid: ReadDeployResult
+                Effect: Allow
+                Action: ssm:GetCommandInvocation
+                Resource: '*'
+      Tags:
+        - Key: Project
+          Value: centriminds
+
   # ── EC2 instance (SSM-managed, no SSH) ─────────────────────────────────
   InstanceRole:
     Type: AWS::IAM::Role
@@ -437,7 +599,7 @@ Resources:
             Effect: Allow
             Action: s3:ListBucket
             Resource: !Sub 'arn:${AWS::Partition}:s3:::${AWS::StackName}-backups-${AWS::AccountId}'
-          - Sid: ReportBackupAge
+          - Sid: ReportBackupAgeAndDisk
             Effect: Allow
             Action: cloudwatch:PutMetricData
             Resource: '*'
@@ -579,3 +741,7 @@ Outputs:
   AlertTopic:
     Description: SNS topic for backup alerts (subscribe more endpoints as needed).
     Value: !Ref AlertTopic
+  DeployRoleArn:
+    Condition: HasDeployRole
+    Description: Role for GitHub Actions; store it as the production environment's AWS_DEPLOY_ROLE_ARN secret.
+    Value: !GetAtt DeployRole.Arn

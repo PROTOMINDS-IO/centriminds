@@ -1,6 +1,7 @@
 # CentriMinds
 
 [![CI](https://github.com/protominds-io/centriminds/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/protominds-io/centriminds/actions/workflows/ci.yml)
+[![Deploy](https://github.com/protominds-io/centriminds/actions/workflows/deploy.yml/badge.svg)](https://github.com/protominds-io/centriminds/actions/workflows/deploy.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Dependabot](https://img.shields.io/badge/dependabot-enabled-025e8c?logo=dependabot)](.github/dependabot.yml)
 [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
@@ -16,6 +17,9 @@ about a machine is data: a *machine profile* that experts import, check
 against their commissioning sheets and edit.
 
 A product by [Protominds](https://www.protominds.io/). Version 0.1.
+
+**Live: [centriminds.de](https://centriminds.de)** (invite-only demo with
+synthetic data) · [deployments](https://github.com/PROTOMINDS-IO/centriminds/deployments)
 
 ![The workspace: condition rating and vibration over speed on the left, the 3D waterfall with order lines, a structural mode and a suggested resonance zone on the right](docs/images/workspace.webp)
 
@@ -76,7 +80,8 @@ the code that backs it.
 | **Secret scanning** | gitleaks scans the whole history in CI, and fails loudly if it could not read all of it instead of reporting "no leaks". ([Makefile](Makefile), [.gitleaks.toml](.gitleaks.toml)) |
 | **Supply chain** | GitHub Actions pinned to commit SHAs, the gitleaks image pinned by digest, lockfiles for npm and uv, CI with read-only permissions, weekly Dependabot updates. ([ci.yml](.github/workflows/ci.yml), [dependabot.yml](.github/dependabot.yml)) |
 | **Typed end to end** | Pydantic schemas are the API contract, mirrored by TypeScript types; SQLAlchemy's typed ORM; German translations typed against the English source. |
-| **Operable** | Verified weekly backups to S3 with Object Lock, a backup before every deploy, an alarm when backups go stale, infrastructure as one CloudFormation stack. ([docs/self-hosting.md](docs/self-hosting.md)) |
+| **Operable** | Verified weekly backups to S3 with Object Lock, a backup before every deploy, alarms for stale backups and a filling disk, automatic recovery of a failed host, infrastructure as one CloudFormation stack. ([docs/self-hosting.md](docs/self-hosting.md)) |
+| **Approved, visible deploys** | Every green push to `main` deploys after an approval in the `production` environment; the history and logs are public, the account's identifiers masked, and AWS is reached through OIDC with no stored keys. ([deploy.yml](.github/workflows/deploy.yml)) |
 
 ### Security
 

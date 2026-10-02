@@ -84,6 +84,7 @@ backend/app/
   profiles.py          profiles in the database: built-ins, recognition
   io/                  .odx parser, machine speeds workbook import
   backup.py            `python -m app.backup create|verify|restore`
+  demo.py              `python -m app.demo seed|reset`: synthetic demo data
 backend/alembic/versions/   schema migrations (applied at startup)
 backend/tests/              pytest; synthetic .odx files and workbooks
 
@@ -101,7 +102,7 @@ frontend/src/
   components/          app components (ConditionPanel, MachineInfoCard, …)
   pages/               routes
 
-deploy/aws/            provision, deploy, backup, restore, teardown scripts
+deploy/aws/            provision, deploy, backup, restore, demo, teardown scripts
 deploy/hostinger/      optional DNS helper
 infra/aws/template.yml CloudFormation stack (EC2, S3 backups, alarms)
 docs/                  machine profiles, architecture, self-hosting, screenshots

@@ -1,0 +1,78 @@
+# Deploys main to the hosted instance (https://centriminds.de) after CI
+# passed on it. The job runs in the `production` environment, which GitHub
+# holds until its required reviewer approves; the history is public under
+# Deployments, and so are the logs.
+#
+# AWS access is GitHub OIDC: the job assumes the stack's DeployRole
+# (infra/aws/template.yml, provision.sh GITHUB_REPO=…), which trusts only
+# this repository's production environment and can only do what
+# deploy/aws/deploy.sh does. Nothing about the account is in this file: the
+# role ARN is an environment secret, and the stack's identifiers are masked
+# before anything prints them.
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time; a newer one waits rather than cancelling a running one.
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to production
+    # A green CI run of a push to main in this repository (a fork's pull
+    # request can have a branch called main too), or a manual run.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://centriminds.de
+    permissions:
+      contents: read
+      id-token: write # OIDC token for the AWS role
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'eu-central-1' }}
+      STACK: ${{ vars.STACK || 'centriminds' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The commit CI tested, not whatever main is by now.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+          role-session-name: centriminds-deploy-${{ github.run_id }}
+
+      # The logs are public: hide the account id and everything derived from
+      # it (bucket names) or that locates the machine (instance id, IP).
+      - name: Mask the stack's identifiers
+        run: |
+          echo "::add-mask::$(aws sts get-caller-identity --query Account --output text)"
+          for key in InstanceId DeployBucket BackupBucket PublicIp; do
+            value="$(aws cloudformation describe-stacks --stack-name "$STACK" \
+              --query "Stacks[0].Outputs[?OutputKey=='$key'].OutputValue" --output text)"
+            if [[ -n "$value" && "$value" != None ]]; then echo "::add-mask::$value"; fi
+          done
+
+      # Sign-up and demo settings are kept on the instance: none is passed here.
+      - name: Deploy
+        run: ./deploy/aws/deploy.sh
+        env:
+          AWS_PROFILE: '' # the role assumed above, not a named profile (env.sh)

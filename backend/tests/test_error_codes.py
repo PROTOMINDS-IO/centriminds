@@ -134,3 +134,24 @@ def test_odx_missing(client: TestClient, synthetic_odx_bytes: bytes, tmp_path: P
     ):
         assert resp.status_code == 404
         assert resp.json()["code"] == "odx_missing"
+
+
+def test_demo_account_is_locked(client: TestClient) -> None:
+    """The shared demo login keeps its password, sessions and name; its
+    display settings stay the visitor's to change."""
+    override_settings(demo_email="tester@example.com")
+    password = {"current_password": "test-password-123", "new_password": "something-new-1"}
+    for resp in (
+        client.post("/api/auth/me/password", json=password),
+        client.delete("/api/auth/me/sessions"),
+        client.patch("/api/auth/me", json={"name": "Mallory"}),
+    ):
+        assert resp.status_code == 403
+        assert resp.json()["code"] == "demo_account_locked"
+    assert client.patch("/api/auth/me", json={"settings": {"theme": "light"}}).status_code == 200
+    assert client.get("/api/auth/me").json()["name"] == "Tester"
+
+
+def test_other_accounts_are_not_locked(client: TestClient) -> None:
+    override_settings(demo_email="demo@example.com")
+    assert client.patch("/api/auth/me", json={"name": "Renamed"}).status_code == 200

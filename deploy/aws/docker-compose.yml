@@ -8,6 +8,14 @@
 # and passes in. Healthchecks are the images' own (the Dockerfiles).
 name: centriminds
 
+# Docker's json-file logs grow without limit by default; cap each container
+# at 3 × 10 MB so logs never fill the volume that holds the data.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
 services:
   backend:
     build:
@@ -21,11 +29,13 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-}
       ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-false}
       REGISTRATION_EMAILS: ${REGISTRATION_EMAILS:-}
+      DEMO_EMAIL: ${DEMO_EMAIL:-}
     volumes:
       - centriminds_data:/data
     expose:
       - "8000"
     restart: unless-stopped
+    logging: *logging
 
   frontend:
     build:
@@ -41,6 +51,7 @@ services:
       # Take the client address from Caddy (frontend/nginx.conf explains).
       - ./real-ip.conf:/etc/nginx/conf.d/real-ip.conf:ro
     restart: unless-stopped
+    logging: *logging
 
   caddy:
     image: caddy:2.11-alpine
@@ -58,6 +69,7 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     restart: unless-stopped
+    logging: *logging
 
 volumes:
   centriminds_data:

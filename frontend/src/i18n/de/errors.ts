@@ -14,6 +14,8 @@ export const errors: Messages['errors'] = {
   rate_limited:
     'Zu viele Versuche. Bitte warten Sie {retry_after} Sekunden und versuchen Sie es erneut.',
   wrong_password: 'Das aktuelle Passwort ist falsch.',
+  demo_account_locked:
+    'Das Demo-Konto wird geteilt, daher können Passwort, Name und Sitzungen nicht geändert werden.',
   project_not_found: 'Projekt nicht gefunden.',
   analysis_not_found: 'Analyse nicht gefunden.',
   file_too_large: 'Die Datei ist größer als {max_mb} MB.',

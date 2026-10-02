@@ -7,7 +7,8 @@
 # redeploys: JWT_SECRET is generated once (so sessions stay valid), and keys
 # you add by hand are preserved. DOMAIN, CORS_ORIGINS and APP_ENV are
 # re-derived on every deploy. Sign-up starts closed; REGISTRATION_EMAILS from
-# deploy.sh (the addresses that may sign up, or "none") changes it.
+# deploy.sh (the addresses that may sign up, or "none") changes it, and
+# DEMO_EMAIL (the shared demo login, or "none") likewise.
 #
 # Before rebuilding, the current data is backed up to S3 (pre-deploy/), so a
 # bad migration can always be rolled back with restore.sh. The deploy stops
@@ -43,6 +44,12 @@ if grep -qiE '^ALLOW_REGISTRATION=["'"'"']?(1|on|t|true|y|yes)["'"'"']?[[:space:
   echo "!! $ENV_FILE opens sign-up to anyone; redeploy with REGISTRATION_EMAILS=<addresses> or =none" >&2
   exit 1
 fi
+# The shared demo login (app/demo.py): DEMO_EMAIL from deploy.sh sets it,
+# "none" removes it; the instance keeps it until it is changed.
+if [[ -n "${DEMO_EMAIL:-}" ]]; then
+  sed -i '/^DEMO_EMAIL=/d' "$ENV_FILE"
+  [[ "$DEMO_EMAIL" == none ]] || echo "DEMO_EMAIL=$DEMO_EMAIL" >> "$ENV_FILE"
+fi
 sed -i '/^DOMAIN=/d;/^CORS_ORIGINS=/d;/^APP_ENV=/d' "$ENV_FILE"
 printf 'DOMAIN=%s\nCORS_ORIGINS=https://%s,https://www.%s\nAPP_ENV=production\n' \
   "$DOMAIN" "$DOMAIN" "$DOMAIN" >> "$ENV_FILE"
@@ -51,12 +58,18 @@ printf 'DOMAIN=%s\nCORS_ORIGINS=https://%s,https://www.%s\nAPP_ENV=production\n'
 printf 'BACKUP_BUCKET=%s\nSTACK=%s\nAWS_REGION=%s\n' "$BACKUP_BUCKET" "$STACK" "$REGION" > "$ROOT/backup.env"
 install -m 0644 "$SRC/names.sh" "$ROOT/names.sh"
 install -m 0755 "$SRC/backup.sh" /usr/local/bin/centriminds-backup
-install -m 0644 "$SRC"/systemd/centriminds-backup*.{service,timer} /etc/systemd/system/
+install -m 0644 "$SRC"/systemd/centriminds-{backup,demo-reset}*.{service,timer} /etc/systemd/system/
 mkdir -p /var/lib/centriminds
 # Until the first backup exists, the reported backup age counts from here.
 [[ -f /var/lib/centriminds/installed-at ]] || date -u +%s > /var/lib/centriminds/installed-at
 systemctl daemon-reload
 systemctl enable --now centriminds-backup.timer centriminds-backup-report.timer
+# The nightly demo reset runs only while a demo account is configured.
+if grep -q '^DEMO_EMAIL=.' "$ENV_FILE"; then
+  systemctl enable --now centriminds-demo-reset.timer
+else
+  systemctl disable --now centriminds-demo-reset.timer 2> /dev/null || true
+fi
 
 # Whenever data exists, even if the running app is failing: the backup reads
 # the volume through a one-off container of the current (pre-deploy) image.
