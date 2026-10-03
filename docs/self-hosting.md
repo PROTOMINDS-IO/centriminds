@@ -58,7 +58,7 @@ of `deploy/aws/env.sh`):
 | `REFRESH_AMI` | `0` | `1` moves to the newest Amazon Linux, which replaces the instance (`provision.sh`). |
 | `REGISTRATION_EMAILS` | keeps current | Who may sign up, or `none` (`deploy.sh`). |
 | `DEMO_EMAIL` | keeps current | The shared demo login, reset nightly, or `none` (`deploy.sh`). |
-| `GITHUB_REPO` | keeps current | `owner/repo` whose `production` environment may deploy, or `none` (`provision.sh`). |
+| `GITHUB_REPO` | keeps current | `owner/repo` whose `production` environment may deploy, or `none` (`provision.sh`). Where GitHub issues immutable subjects, the form with ids: `owner@123/repo@456`, as the deploy log's "Show the OIDC subject" step prints it. |
 | `GITHUB_OIDC_PROVIDER_ARN` | keeps current | The account's existing GitHub OIDC provider, if it has one (`provision.sh`). |
 | `MONTHLY_BUDGET_USD` | keeps current | Monthly cost alert to `ALERT_EMAIL`; `0` for none (`provision.sh`). |
 | `OFF_HOURS` | keeps current | Daily stop and start in whole hours, e.g. `21-6`; `none` keeps the instance always on (`provision.sh`). |
