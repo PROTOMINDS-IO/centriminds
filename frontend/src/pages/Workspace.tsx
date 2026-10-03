@@ -125,7 +125,7 @@ export default function Workspace() {
             imageName={project?.name}
           />
           <SlicePanel spectrogram={specQ.data} inset={inset} />
-          <ColourLegend inset={inset} />
+          <ColourLegend />
           <ViewHint inset={inset} />
         </>
       )}

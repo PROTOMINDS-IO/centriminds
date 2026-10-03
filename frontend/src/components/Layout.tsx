@@ -1,5 +1,6 @@
 // Frame of the signed-in pages: a top bar with the logo (a link home) and the
-// account menu, above the routed page. Each page gets its own error boundary,
+// account menu, above the routed page. The bar spans the window at every
+// width, its edges in line with the workspace's floating cards (12px). Each page gets its own error boundary,
 // and a loading state while a lazy page (the workspace) loads.
 import { Suspense, useEffect, useId, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
@@ -68,7 +69,7 @@ function UserMenu() {
   return (
     <div
       ref={rootRef}
-      className="relative shrink-0"
+      className="relative -mr-2 shrink-0"
       onBlur={(e) => {
         const next = e.relatedTarget;
         if (open && next instanceof Node && !e.currentTarget.contains(next)) setOpen(false);
@@ -166,7 +167,7 @@ export default function Layout() {
   return (
     <div className="flex h-full flex-col bg-ink-950">
       <header className="sticky top-0 z-30 border-b border-ink-700/80 bg-ink-900/80 backdrop-blur-md">
-        <div className="mx-auto flex h-14 w-full items-center justify-between gap-2 px-3 sm:gap-4 sm:px-4 lg:px-6 2xl:max-w-(--breakpoint-2xl)">
+        <div className="flex h-14 w-full items-center justify-between gap-2 px-3 sm:gap-4">
           <Logo size={28} />
           {/* Keyed by path: whatever was open closes when the page changes. */}
           <UserMenu key={pathname} />
