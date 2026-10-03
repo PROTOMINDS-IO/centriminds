@@ -99,6 +99,12 @@ if ! "$BUILDX" version 2> /dev/null | grep -q " $BUILDX_VERSION "; then
   rm -f /tmp/docker-buildx
 fi
 
+# Compose prefers the shell's variables over --env-file, so an empty
+# REGISTRATION_EMAILS or DEMO_EMAIL passed down from deploy.sh would replace
+# the saved values: sign-up would read as open to anyone and the backend
+# would refuse to start. .env, written above, is the only source from here.
+unset REGISTRATION_EMAILS DEMO_EMAIL
+
 cd "$SRC"
 docker compose --env-file "$ENV_FILE" up -d --build --remove-orphans
 docker image prune -f
