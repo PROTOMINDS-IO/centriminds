@@ -45,8 +45,11 @@ Parameters:
   GitHubRepo:
     Type: String
     Default: ''
-    AllowedPattern: '^$|^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
-    Description: owner/repo whose production environment may deploy. Empty = no deploy role.
+    # Either form GitHub puts in the token's subject: owner/repo, or with the
+    # numeric ids (owner@123/repo@456) where immutable subjects are on. The
+    # failed sign-in's "Show the OIDC subject" step prints which one it sends.
+    AllowedPattern: '^$|^[A-Za-z0-9_.-]+(@[0-9]+)?/[A-Za-z0-9_.-]+(@[0-9]+)?$'
+    Description: owner/repo (or owner@id/repo@id) whose production environment may deploy. Empty = no deploy role.
   # An account has at most one OIDC provider per URL: pass its ARN when one
   # exists already, or leave this empty to let the stack create it.
   GitHubOidcProviderArn:
