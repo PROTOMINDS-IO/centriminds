@@ -14,7 +14,7 @@ import { SlidersIcon } from '../ui/icons';
 import Reveal from '../ui/Reveal';
 import DisplayPanel from '../waterfall/DisplayPanel';
 import { FloatingCard, Sheet } from './FloatingCard';
-import { RIGHT_CARD_REM, focusIsIn, useCloseOnEscape, useWide } from './chrome';
+import { LEGEND_RESERVE_REM, RIGHT_CARD_REM, focusIsIn, useCloseOnEscape, useWide } from './chrome';
 import { ViewControlList, ViewToolbar } from './ViewControls';
 
 interface Props {
@@ -33,6 +33,7 @@ export default function ViewCard({ projectId, physics, rpmMin, rpmMax, freqMin, 
   const setOpen = useUIStore((s) => s.setDisplayOpen);
   const setAnalysisPanel = useUIStore((s) => s.setAnalysisPanel);
   const sectionOpen = useUIStore((s) => s.analysisPanel !== null);
+  const slice = useUIStore((s) => s.showSlice);
   const triggerId = useId();
 
   function toggle() {
@@ -98,6 +99,8 @@ export default function ViewCard({ projectId, physics, rpmMin, rpmMax, freqMin, 
       label={title}
       widthRem={RIGHT_CARD_REM}
       expanded={panel.mounted && !panel.exiting}
+      // The legend stays in the bottom-right corner; the open card ends above it.
+      reserveBottomRem={panel.mounted && !slice ? LEGEND_RESERVE_REM : undefined}
     >
       {/* Right-aligned, so nothing moves under the pointer as the card widens. */}
       <div className="flex shrink-0 items-center justify-end gap-1 p-1.5">

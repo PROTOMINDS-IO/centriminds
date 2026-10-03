@@ -1,8 +1,9 @@
 // Colour legend of the waterfall: the colour scheme as a bar with amplitude
 // ticks where each value falls, so the spread of the colours (see
-// SPREAD_RANGE_DB in model.ts) can be read off. Bottom right of the free
-// view, above the controls hint; gives way to the slice panel and stays off
-// phones.
+// SPREAD_RANGE_DB in model.ts) can be read off. Always in the bottom-right
+// corner of the view, above the controls hint, whatever the cards expand
+// (the open view card ends above it); gives way to the slice panel and
+// stays off phones.
 import { useMemo } from 'react';
 
 import { useI18n } from '../../i18n';
@@ -10,10 +11,9 @@ import { colormapGradient } from '../../lib/colormaps';
 import { useResolvedTheme } from '../../lib/theme';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useUIStore } from '../../store/uiStore';
-import type { Insets } from './framing';
 import { legendTicks, useLegendStore } from './legend';
 
-export default function ColourLegend({ inset }: { inset: Insets }) {
+export default function ColourLegend() {
   const { t, fmt } = useI18n();
   const scale = useLegendStore((s) => s.scale);
   const colormap = useSettingsStore((s) => s.colormap);
@@ -26,8 +26,7 @@ export default function ColourLegend({ inset }: { inset: Insets }) {
   const bar = colormapGradient(colormap, theme, 'to top');
   return (
     <figure
-      className="float pointer-events-none absolute bottom-8 z-10 hidden animate-enter rounded-lg px-2.5 pt-2 pb-2.5 text-[10px] transition-[right] duration-250 ease-smooth md:block"
-      style={{ right: 12 + inset.right }}
+      className="float pointer-events-none absolute right-3 bottom-8 z-10 hidden animate-enter rounded-lg px-2.5 pt-2 pb-2.5 text-[10px] md:block"
       aria-label={t('workspace.legend.label')}
     >
       <figcaption className="mb-2 font-medium text-ink-200">mm/s</figcaption>

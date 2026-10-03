@@ -16,6 +16,7 @@ export function FloatingCard({
   label,
   widthRem,
   expanded = false,
+  reserveBottomRem,
   className = '',
   children,
 }: {
@@ -23,6 +24,8 @@ export function FloatingCard({
   label: string;
   widthRem?: number;
   expanded?: boolean;
+  /** Keep this much of the view's bottom free (the colour legend). */
+  reserveBottomRem?: number;
   className?: string;
   children: ReactNode;
 }) {
@@ -34,7 +37,10 @@ export function FloatingCard({
       className={`float card-grow pointer-events-auto absolute top-3 z-20 flex max-h-[calc(100%-1.5rem)] flex-col rounded-xl ${
         side === 'left' ? 'left-3' : 'right-3'
       } ${className}`}
-      style={widthRem ? ({ '--card-w': `${widthRem}rem` } as CSSProperties) : undefined}
+      style={{
+        ...(widthRem ? ({ '--card-w': `${widthRem}rem` } as CSSProperties) : {}),
+        ...(reserveBottomRem ? { maxHeight: `calc(100% - 0.75rem - ${reserveBottomRem}rem)` } : {}),
+      }}
     >
       {children}
     </section>

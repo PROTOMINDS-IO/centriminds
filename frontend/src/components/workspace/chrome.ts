@@ -11,6 +11,9 @@ const WIDE_MIN_PX = 768;
 /** Expanded widths (rem): the measurement card (left) and the view card (right). */
 export const LEFT_CARD_REM = 24;
 export const RIGHT_CARD_REM = 22;
+/** Room (rem) the expanded view card leaves free at the bottom for the
+ *  colour legend: its offset (bottom-8), its height and a gap. */
+export const LEGEND_RESERVE_REM = 12.5;
 /** Cards sit this far from the view's edges (top-3, left-3, right-3). */
 const MARGIN_PX = 12;
 
